@@ -1,0 +1,120 @@
+# Every job runs the same Makefile targets a developer runs locally.
+# Gates this pipeline cannot run (for example a build that needs macOS) are named in AGENTS.md
+# under "Gates" and run locally on the pushed commit.
+stages: [lint, test, docs, release]
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    # Manual runs ("Run pipeline" in the UI) run the gates like a push.
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_COMMIT_TAG'
+
+default:
+  # Choose an image with make and the {{STACK}} toolchain and dependencies.
+  image: "{{CI_IMAGE}}"
+
+lint:
+  stage: lint
+  needs: []
+  interruptible: true
+  script:
+    - make lint
+
+test:
+  stage: test
+  needs: []
+  interruptible: true
+  # Optional: add a disposable database according to {{TEST_DB}}.
+  # Match the image and variables to the harness; these are test-only credentials.
+  # services:
+  #   - name: postgres:17
+  #     alias: test-db
+  # variables:
+  #   POSTGRES_USER: test
+  #   POSTGRES_PASSWORD: test-only
+  #   POSTGRES_DB: test
+  # Pass the service hostname test-db and these credentials to your test harness.
+  # The Docker executor checks out with umask 0000 (files 0666/0777); tests that assert
+  # file modes need this flag (keep a single variables: block per job).
+  # variables:
+  #   FF_DISABLE_UMASK_FOR_DOCKER_EXECUTOR: "true"
+  script:
+    - make test
+
+docs-check:
+  stage: docs
+  needs: []
+  image: python:3.12-slim
+  interruptible: true
+  before_script:
+    # The slim image may lack both git (rule checks) and make (target runner).
+    - |
+      if ! command -v git >/dev/null || ! command -v make >/dev/null; then
+        apt-get update
+        apt-get install -y --no-install-recommends git make
+      fi
+  script:
+    - make docs-check
+    - make test-agent-rules
+
+release-image:
+  stage: release
+  needs: [lint, test, docs-check]
+  image: docker:27
+  interruptible: false
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/'
+  # Docker-in-Docker and binfmt installation require a privileged Docker runner.
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    GIT_DEPTH: "0"
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: /certs
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: /certs/client
+  # Configure the runner to share /certs/client with the Docker service.
+  # Optional keyless signing: install cosign in this image, enable this block,
+  # then uncomment the signing commands below to use GitLab's OIDC identity.
+  # id_tokens:
+  #   SIGSTORE_ID_TOKEN:
+  #     aud: sigstore
+  before_script:
+    - if ! command -v git >/dev/null; then apk add --no-cache git; fi
+  script:
+    # Update the remote-tracking branch even when the runner fetched only a tag.
+    - git fetch origin "$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
+    - git merge-base --is-ancestor HEAD "origin/$CI_DEFAULT_BRANCH"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker run --privileged --rm tonistiigi/binfmt --install amd64,arm64
+    - docker buildx create --use
+    - docker buildx inspect --bootstrap
+    - >-
+      docker buildx build --platform linux/amd64,linux/arm64
+      --tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+      --tag "$CI_REGISTRY_IMAGE:${CI_COMMIT_TAG%.*}"
+      --provenance=mode=max --sbom=true --metadata-file build-metadata.json
+      --push .
+    # Sign the published multi-platform digest after enabling the token above.
+    # - apk add --no-cache jq
+    # - DIGEST=$(jq -r '."containerimage.digest"' build-metadata.json)
+    # - cosign sign --yes --identity-token "$SIGSTORE_ID_TOKEN" "$CI_REGISTRY_IMAGE@$DIGEST"
+
+# Deploy skeleton: uncomment and adapt.
+# Every deploy job carries these explicit rules so a merge request pipeline, which runs
+# branch code, never creates one. Deploy credentials are protected CI variables
+# (Settings > CI/CD > Variables, "Protect variable"): unprotected variables are exposed
+# to merge request pipelines.
+# deploy:
+#   stage: release
+#   needs: [lint, test, docs-check]
+#   environment: production
+#   rules:
+#     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+#       when: never
+#     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && ($CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web")'
+#   script:
+#     - make deploy

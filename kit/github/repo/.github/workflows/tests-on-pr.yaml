@@ -1,0 +1,71 @@
+# Quality gate for pull requests and {{DEFAULT_BRANCH}}: lint, tests, documentation and rules.
+# Every step runs the same Makefile target a developer runs locally; this file
+# only adds the CI environment (optional database service and toolchains).
+# Gates this workflow cannot run (for example a build that needs macOS) are named in AGENTS.md
+# under "Gates" and run locally on the pushed commit.
+
+name: Tests on PR
+
+on:
+  pull_request:
+  push:
+    branches: [{{DEFAULT_BRANCH}}]
+  workflow_dispatch:
+
+# A newer push to the same PR (or branch) cancels the run it supersedes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      # Replace this placeholder with toolchain and dependency installation.
+      # - name: set up the toolchain ({{STACK}})
+      #   run: your toolchain setup command
+      - name: Lint
+        run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    # Optional: configure a disposable test database according to {{TEST_DB}}.
+    # Match the image, credentials, port and health check to the test harness.
+    # services:
+    #   test-db:
+    #     image: postgres:17
+    #     env:
+    #       POSTGRES_USER: test
+    #       POSTGRES_PASSWORD: test-only
+    #       POSTGRES_DB: test
+    #     ports: ["5432:5432"]
+    #     options: >-
+    #       --health-cmd "pg_isready -U test -d test"
+    #       --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      # Replace this placeholder with toolchain and dependency installation.
+      # - name: set up the toolchain ({{STACK}})
+      #   run: your toolchain setup command
+      - name: Test
+        run: make test
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Check documentation
+        run: make docs-check
+      - name: Check rule contracts
+        run: make test-agent-rules
