@@ -39,10 +39,11 @@ agent does.
   /plugin install rpa-gen-rules@rpa-skills
   ```
 - Optional: [Codex](https://github.com/openai/codex) as a worker. The kit brings the hook that feeds
-  it your project rules.
-- The orchestration setup the briefs refer to: an orchestration policy in `~/.claude/CLAUDE.md` and
-  the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`. The kit does not
-  ship them yet; [REFERENCE.md](REFERENCE.md#requirements) says what they do.
+  it your project rules. You supply the small `codex-task` wrapper the briefs call;
+  [kit/global/README.md](kit/global/README.md) says what it must do.
+- The orchestration setup the briefs refer to: a policy in `~/.claude/CLAUDE.md` and the agents
+  `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`. The kit ships them. After
+  cloning (below), run `./install-global.sh` in the kit directory once; it never overwrites a file.
 
 ## Getting started
 

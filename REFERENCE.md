@@ -14,12 +14,13 @@ The kit has three layers. Only the second is copied into your repository.
 
 | Layer | Where it lives | What belongs to it |
 | --- | --- | --- |
-| 1 Global tooling | On your machine, not in the kit | `~/.claude/CLAUDE.md` (orchestration policy), the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`, the skills `/rpa-init` and `/rpa-gen-rules`, the Codex wrapper `codex-task`, the "no attribution" rule |
+| 1 Global tooling | On your machine; policy and agents ship in [kit/global/](kit/global/) | `~/.claude/CLAUDE.md` (orchestration policy), the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`, the skills `/rpa-init` and `/rpa-gen-rules`, the Codex wrapper `codex-task`, the "no attribution" rule |
 | 2 Files in the repo | [kit/](kit/) | Working contract `AGENTS.md` with a `CLAUDE.md` symlink, `DESIGN.md`, docs skeleton with a template for the core journeys, `SECURITY.md`, `CONTRIBUTING.md`, Makefile with `docs-check` and a rule test, Codex hook, Gherkin guide; per host an issue template, a PR/MR template, CI and a script that protects the main branch |
 | 3 Process | [playbook/](playbook/) | The workflow, the roles, acceptance from the user's side, Codex briefs, the two session prompts and the `/kit` skill that starts and oversees sessions |
 
-The kit is not a dependency of the projects it serves. Clone it once, and `bootstrap.sh` copies
-layer 2 into each repository. Project rules (`.claude/rules/`, `.cursor/rules/`) are not copied.
+The kit is not a dependency of the projects it serves. Clone it once, run `install-global.sh` once
+per machine for the policy and the agents of layer 1, and `bootstrap.sh` copies layer 2 into each
+repository. Project rules (`.claude/rules/`, `.cursor/rules/`) are not copied.
 `/rpa-init` and `/rpa-gen-rules` generate them per project, and the Codex hook from the kit
 attaches them.
 
@@ -48,26 +49,36 @@ acceptance), [session-briefs/](playbook/session-briefs/) (the two session prompt
 - Optional: Codex, for the hook and the supplement skill.
 - Optional: ShellCheck or Docker, for the shell lint in `make test`.
 
-The kit expects the following on your machine but does not ship it. It comes from your own setup.
+The briefs expect the following on your machine. The kit ships the first two and installs them
+with `install-global.sh`; the rest is yours.
 
-- The orchestration policy in `~/.claude/CLAUDE.md`.
-- The agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`.
-  [roles.md](playbook/roles.md) describes what each one does.
+- The orchestration policy in `~/.claude/CLAUDE.md`. Source: [kit/global/orchestration-policy.md](kit/global/orchestration-policy.md).
+- The agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`. Source:
+  [kit/global/agents/](kit/global/agents/). [roles.md](playbook/roles.md) describes what each one does.
 - The skills `/rpa-init` and `/rpa-gen-rules`, from [EvilFreelancer/rpa-skills](https://github.com/EvilFreelancer/rpa-skills)
   (MIT). In Claude Code: `/plugin marketplace add EvilFreelancer/rpa-skills`, then
   `/plugin install rpa-init@rpa-skills` and `/plugin install rpa-gen-rules@rpa-skills`.
-- The wrapper `codex-task DIR BRIEF_FILE [LOG]`, needed only if you use Codex as a worker.
+- The wrapper `codex-task DIR BRIEF_FILE [LOG]`, needed only if you use Codex as a worker. You
+  supply it; [kit/global/README.md](kit/global/README.md) says what the briefs expect of it.
 
-The briefs name these pieces. Provide equivalents before you start sessions.
+`./install-global.sh` copies `kit/global/agents/*.md` to `~/.claude/agents/` and appends
+`kit/global/orchestration-policy.md` to `~/.claude/CLAUDE.md`, inside a block between `<!-- project-kit:begin -->`
+and `<!-- project-kit:end -->`. It creates missing directories and honors `HOME`. It never
+overwrites an existing agent file and never adds a second block; it reports and skips both.
+`--dry-run` prints what it would do and changes nothing. To take a newer version of a file, remove
+the old one (or the block) by hand and run it again. It does not touch `settings.json`.
+
+If you use other tooling for these pieces, provide equivalents before you start sessions.
 
 ## Quick start
 
 [onboarding.md](onboarding.md) has the long form. In short:
 
 1. Clone the kit. Any path works for `bootstrap.sh`; the docs and the `/kit` skill assume
-   `~/Developer/project-kit`.
+   `~/Developer/project-kit`. Install the policy and the agents once per machine.
    ```bash
    git clone git@github.com:itskeKs/project-kit.git ~/Developer/project-kit
+   cd ~/Developer/project-kit && ./install-global.sh
    ```
 2. Bootstrap the target repository, a new one or an existing one. Run this from the kit
    directory. Existing files are never overwritten, and skipped files are reported. Add
@@ -114,6 +125,8 @@ machine, because the merge lock and the worktree claims live under `/tmp`.
 ```
 bootstrap.sh              copies kit/common and kit/<host>/repo into a repository,
                           creates CLAUDE.md -> AGENTS.md, fills host placeholders and the main branch
+install-global.sh         copies kit/global/agents/*.md to ~/.claude/agents/ and appends the policy
+                          to ~/.claude/CLAUDE.md in a marker block; never overwrites, --dry-run previews
 onboarding.md             the recipe for a new project
 Makefile                  make test and make docs-check for the kit itself
 playbook/
@@ -124,6 +137,8 @@ playbook/
   session-briefs/         issue-session.md, maintainer-session.md, fill-brief.py, kit-status.py
   skills/kit/             the /kit skill for Claude Code
   skills/kit-codex/       supplement that runs the same commands as $kit in Codex
+kit/global/               global layer: agents/ (scout, builder, verifier, architect), orchestration-policy.md
+                          (the orchestration policy), README.md (what stays yours, codex-task)
 kit/common/               files for every repository, with {{PLACEHOLDERS}}
   AGENTS.md DESIGN.md SECURITY.md CONTRIBUTING.md Makefile
   docs/                   skeleton: roadmap, architecture, feature status, ADRs, operations,
@@ -137,7 +152,8 @@ kit/github/protect.sh     protected main branch with required checks, via gh api
 kit/gitlab/repo/          .gitlab-ci.yml with a release job, issue and MR templates
 kit/gitlab/protect.sh     protected main branch, "Pipelines must succeed", approvals, via glab api
 kit/gitlab/cli.md         every gh command of the process and its glab counterpart
-tests/                    test_bootstrap.sh, test_fill_brief.py, test_kit_status.py
+tests/                    test_bootstrap.sh, test_install_global.sh, test_fill_brief.py,
+                          test_kit_status.py
 ```
 
 ## Placeholders
@@ -181,9 +197,13 @@ ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
 make test
 ```
 
-runs three suites. `tests/test_bootstrap.sh` bootstraps both hosts into a temp directory. It checks
+runs four suites. `tests/test_bootstrap.sh` bootstraps both hosts into a temp directory. It checks
 files, the symlink, placeholders, default-branch detection, no overwriting and idempotence. On the
-result it runs the link checker and the rule test. `tests/test_fill_brief.py` covers `fill-brief.py`.
+result it runs the link checker and the rule test. `tests/test_install_global.sh` runs
+`install-global.sh` against temporary home directories. It checks a fresh install, that a second run
+changes nothing, that an existing agent file or `CLAUDE.md` content is kept, that `--dry-run`
+creates nothing and bad arguments. It never touches your real `~/.claude`.
+`tests/test_fill_brief.py` covers `fill-brief.py`.
 `tests/test_kit_status.py` covers `kit-status.py` offline, with fake `gh` and `glab`. ShellCheck
 then runs over the shell scripts, directly if installed or through Docker, else it is skipped.
 

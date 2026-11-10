@@ -7,7 +7,9 @@ other; anyone taking over an existing repo with a backlog needs all of them.
 ## Prerequisites
 
 The global layer is on the machine: `~/.claude/CLAUDE.md`, the agents in `~/.claude/agents/`, the
-skills `/rpa-init` and `/rpa-gen-rules`, the wrapper `codex-task`. The host CLI (`glab` or `gh`) is
+skills `/rpa-init` and `/rpa-gen-rules`, the wrapper `codex-task`. `./install-global.sh` in the kit
+directory installs the policy and the four agents and skips what already exists (`--dry-run`
+previews it); the skills and `codex-task` you provide yourself. The host CLI (`glab` or `gh`) is
 logged in by the owner: `glab auth status --hostname <host>` or `gh auth status`. Agents never
 enter tokens; if the login is missing, the session reports it and keeps working locally.
 
@@ -239,7 +241,7 @@ briefs follow [playbook/codex-briefs.md](playbook/codex-briefs.md).
 - Deploy scripts, installers, compose files, server bootstrap: too project-specific. The kit
   names only the form (release on tag, deploy via an SSH key with a forced command,
   production taboos in `AGENTS.md`).
-- The global layer (`~/.claude/…`, `codex-task`, skills): is already on the machine and is
-  maintained per machine, not per repo.
+- The global layer (`~/.claude/…`, `codex-task`, skills): is already on the machine (the policy
+  and the agents come from `install-global.sh`) and is maintained per machine, not per repo.
 - `.gitignore`, license file, `.env.example`: depend on the stack and on the owner's choice of
   license.

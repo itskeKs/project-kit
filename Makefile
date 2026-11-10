@@ -3,14 +3,15 @@
 help: ## List the documented targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-test: ## Test both bootstrap hosts and check shell scripts when shellcheck is installed
+test: ## Test both bootstrap hosts, the global installer and the scripts; check shell scripts when shellcheck is installed
 	bash tests/test_bootstrap.sh
+	bash tests/test_install_global.sh
 	python3 tests/test_fill_brief.py
 	python3 tests/test_kit_status.py
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck bootstrap.sh tests/test_bootstrap.sh kit/*/protect.sh kit/common/scripts/checks.sh; \
+		shellcheck bootstrap.sh install-global.sh tests/test_bootstrap.sh tests/test_install_global.sh kit/*/protect.sh kit/common/scripts/checks.sh; \
 	elif docker info >/dev/null 2>&1; then \
-		docker run --rm -v "$$PWD:/mnt:ro" koalaman/shellcheck:stable bootstrap.sh tests/test_bootstrap.sh kit/github/protect.sh kit/gitlab/protect.sh kit/common/scripts/checks.sh; \
+		docker run --rm -v "$$PWD:/mnt:ro" koalaman/shellcheck:stable bootstrap.sh install-global.sh tests/test_bootstrap.sh tests/test_install_global.sh kit/github/protect.sh kit/gitlab/protect.sh kit/common/scripts/checks.sh; \
 	else \
 		printf '%s\n' 'shellcheck not installed and docker not running — skipped'; \
 	fi
