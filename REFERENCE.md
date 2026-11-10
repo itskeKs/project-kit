@@ -14,7 +14,7 @@ The kit has three layers. Only the second is copied into your repository.
 
 | Layer | Where it lives | What belongs to it |
 | --- | --- | --- |
-| 1 Global tooling | On your machine; policy and agents ship in [kit/global/](kit/global/) | `~/.claude/CLAUDE.md` (orchestration policy), the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`, the skills `/rpa-init` and `/rpa-gen-rules`, the Codex wrapper `codex-task`, the "no attribution" rule |
+| 1 Global tooling | On your machine; policy and agents ship in [kit/global/](kit/global/) | The skills `/rpa-init` and `/rpa-gen-rules` (both hosts); with Claude Code the orchestration policy in `~/.claude/CLAUDE.md` and the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`; with Codex its own orchestration; in a mixed setup the Codex wrapper `codex-task` |
 | 2 Files in the repo | [kit/](kit/) | Working contract `AGENTS.md` with a `CLAUDE.md` symlink, `DESIGN.md`, docs skeleton with a template for the core journeys, `SECURITY.md`, `CONTRIBUTING.md`, Makefile with `docs-check` and a rule test, Codex hook, Gherkin guide; per host an issue template, a PR/MR template, CI and a script that protects the main branch |
 | 3 Process | [playbook/](playbook/) | The workflow, the roles, acceptance from the user's side, Codex briefs, the two session prompts and the `/kit` skill that starts and oversees sessions |
 
@@ -43,23 +43,27 @@ acceptance), [session-briefs/](playbook/session-briefs/) (the two session prompt
 
 - `git`, `bash` and Python 3.
 - `gh` (GitHub) or `glab` (GitLab), logged in by the owner. Agents never enter credentials.
-- Claude Code, for the `/kit` skill and the session briefs. The `/kit` skill starts detached
-  sessions with the Claude desktop app's session tools. In a terminal you paste the filled brief
-  into a new chat.
-- Optional: Codex, for the hook and the supplement skill.
+- Claude Code or the Codex app; both run the whole process. In Claude Code the `/kit` skill starts
+  detached sessions with the desktop app's session tools; in Codex the supplement skill runs the
+  same commands as `$kit` and starts threads (see [Working with Codex](#working-with-codex)). In a
+  terminal you paste the filled brief into a new chat instead.
 - Optional: ShellCheck or Docker, for the shell lint in `make test`.
 
-The briefs expect the following on your machine. The kit ships the first two and installs them
-with `install-global.sh`; the rest is yours.
+The briefs expect the following on your machine. The kit ships the first two, which only Claude
+Code needs, and installs them with `install-global.sh`; the rest is yours.
 
-- The orchestration policy in `~/.claude/CLAUDE.md`. Source: [kit/global/orchestration-policy.md](kit/global/orchestration-policy.md).
-- The agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`. Source:
+- With Claude Code: the orchestration policy in `~/.claude/CLAUDE.md`. Source: [kit/global/orchestration-policy.md](kit/global/orchestration-policy.md).
+- With Claude Code: the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`. Source:
   [kit/global/agents/](kit/global/agents/). [roles.md](playbook/roles.md) describes what each one does.
+  Codex has no counterpart to install; the supplement skill maps these roles to Codex threads and
+  subagents.
 - The skills `/rpa-init` and `/rpa-gen-rules`, from [EvilFreelancer/rpa-skills](https://github.com/EvilFreelancer/rpa-skills)
   (MIT). In Claude Code: `/plugin marketplace add EvilFreelancer/rpa-skills`, then
-  `/plugin install rpa-init@rpa-skills` and `/plugin install rpa-gen-rules@rpa-skills`.
-- The wrapper `codex-task DIR BRIEF_FILE [LOG]`, needed only if you use Codex as a worker. You
-  supply it; [kit/global/README.md](kit/global/README.md) says what the briefs expect of it.
+  `/plugin install rpa-init@rpa-skills` and `/plugin install rpa-gen-rules@rpa-skills`. In Codex:
+  `codex plugin marketplace add EvilFreelancer/rpa-skills`, then install both from `/plugins`.
+- The wrapper `codex-task DIR BRIEF_FILE [LOG]`, needed only in the mixed setup where Claude Code
+  is the host and delegates implementation to Codex. You supply it; [kit/global/README.md](kit/global/README.md)
+  says what the briefs expect of it. A Codex-hosted session implements directly and needs no wrapper.
 
 `./install-global.sh` copies `kit/global/agents/*.md` to `~/.claude/agents/` and appends
 `kit/global/orchestration-policy.md` to `~/.claude/CLAUDE.md`, inside a block between `<!-- project-kit:begin -->`
@@ -180,16 +184,25 @@ one without. Keep exactly one. The same file suits web applications, servers, ap
 
 ## Working with Codex
 
+Codex is a full host for the kit, not only a worker. The supplement skill in
+`playbook/skills/kit-codex/` runs the `/kit` commands as `$kit` and maps the Claude desktop app's
+session tools to the Codex app's thread tools. A task started there follows the same brief,
+including the handover to its successor and the merge, and names itself `<project> #N: …` like a
+Claude session. Two differences remain: Codex implements directly instead of delegating to
+`codex-task`, and a finished task is not archived automatically. The supplement reads the Claude
+skill, so link both:
+
+```bash
+ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit
+ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
+```
+
 The hook in `kit/common/.codex/` attaches the generated rules to Codex sessions: the always-on
 rules at session start, the scoped rules before `apply_patch`, `Edit` or `Write`. It reads the
 `.cursor/rules/` tree; approve it once per clone with `/hooks`.
 [codex-briefs.md](playbook/codex-briefs.md) lists what every Codex brief states: scope, red-first
-tests, prohibitions on push, merge and production, and a short report. The supplement skill in
-`playbook/skills/kit-codex/` runs the `/kit` commands as `$kit` in Codex:
-
-```bash
-ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
-```
+tests, prohibitions on push, merge and production, and a short report. They apply to the mixed
+setup, where a Claude Code session hands implementation to Codex through `codex-task`.
 
 ## Tests
 

@@ -3,8 +3,8 @@
 You have a software project. You want coding agents to do the work: pick up an issue, implement it,
 test it, get it reviewed, merge it, and move on to the next one. You want to decide, not to babysit.
 
-project-kit gives your repository the files and the routine for that. It works with Claude Code,
-optionally with Codex as a second worker, on GitHub or GitLab.
+project-kit gives your repository the files and the routine for that. It works with Claude Code or
+with Codex, on GitHub or GitLab.
 
 ## What it does
 
@@ -17,8 +17,9 @@ optionally with Codex as a second worker, on GitHub or GitLab.
   agent that never sees the code tries exactly that before the merge. Per milestone, you accept.
 - **A chain that keeps going.** When a session has opened its pull request, it starts the session
   for the next issue. Several chains can run in parallel.
-- **`/kit` in Claude Code.** `/kit status` shows what is running and what waits for you. `/kit next`
-  starts the next issue. `/kit bug <text>` turns a sentence into an issue and starts its session.
+- **`/kit` in Claude Code, `$kit` in Codex.** `/kit status` shows what is running and what waits for
+  you. `/kit next` starts the next issue. `/kit bug <text>` turns a sentence into an issue and starts
+  its session. The sessions themselves run as Claude Code sessions or as Codex threads.
 
 ## What you do
 
@@ -29,21 +30,24 @@ agent does.
 
 ## What you need
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and the `gh` or `glab` CLI, logged in.
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or the
+  [Codex](https://github.com/openai/codex) app. Both run the whole process; pick one or use both.
+- The `gh` or `glab` CLI, logged in.
 - The skills `/rpa-init` and `/rpa-gen-rules` from
   [EvilFreelancer/rpa-skills](https://github.com/EvilFreelancer/rpa-skills). They read your project
-  and generate its rules. Install them in Claude Code:
+  and generate its rules. In Claude Code:
   ```text
   /plugin marketplace add EvilFreelancer/rpa-skills
   /plugin install rpa-init@rpa-skills
   /plugin install rpa-gen-rules@rpa-skills
   ```
-- Optional: [Codex](https://github.com/openai/codex) as a worker. The kit brings the hook that feeds
-  it your project rules. You supply the small `codex-task` wrapper the briefs call;
-  [kit/global/README.md](kit/global/README.md) says what it must do.
-- The orchestration setup the briefs refer to: a policy in `~/.claude/CLAUDE.md` and the agents
-  `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`. The kit ships them. After
-  cloning (below), run `./install-global.sh` in the kit directory once; it never overwrites a file.
+  In Codex: `codex plugin marketplace add EvilFreelancer/rpa-skills`, then install both from
+  `/plugins`.
+- With Claude Code only: the agents and the orchestration policy the sessions rely on. The kit
+  ships them; after cloning (below), run `./install-global.sh` in the kit directory once. It never
+  overwrites a file. Codex needs none of this; it brings its own orchestration.
+- With Codex: the kit's hook feeds your project rules into every Codex session. Approve it once per
+  clone with `/hooks`.
 
 ## Getting started
 
@@ -56,14 +60,20 @@ agent does.
    cd ~/Developer/project-kit
    ./bootstrap.sh /path/to/your/repo --host github    # or --host gitlab
    ```
-3. Open Claude Code in your repository and run `/rpa-init`, then `/rpa-gen-rules`. Fill the
-   remaining `{{PLACEHOLDERS}}` in `AGENTS.md` and `DESIGN.md` with your project's facts.
+3. Open Claude Code or Codex in your repository and run `/rpa-init`, then `/rpa-gen-rules` (Codex:
+   `$rpa-init`, `$rpa-gen-rules`). Fill the remaining `{{PLACEHOLDERS}}` in `AGENTS.md` and
+   `DESIGN.md` with your project's facts.
 4. Turn your backlog into milestones and issues, using the issue template that is now in your repo.
-5. Link the `/kit` skill and start the first session:
+5. Link the `/kit` skill and start the first session. Claude Code:
    ```bash
    ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit
    ```
-   In a Claude Code chat inside your repository: `/kit init`, then `/kit next`.
+   Codex (the supplement reads the Claude skill, so link both):
+   ```bash
+   ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit
+   ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
+   ```
+   In a chat inside your repository: `/kit init`, then `/kit next` (Codex: `$kit init`, `$kit next`).
 
 [onboarding.md](onboarding.md) walks through this in detail, including CI and branch protection.
 
@@ -73,7 +83,7 @@ agent does.
 | --- | --- |
 | [onboarding.md](onboarding.md) | Setting up a project, step by step |
 | [playbook/workflow.md](playbook/workflow.md) | The path of a change, from roadmap to merge |
-| [playbook/roles.md](playbook/roles.md) | Who does what: owner, sessions, reviewer, acceptance agent, Codex |
+| [playbook/roles.md](playbook/roles.md) | Who does what: owner, sessions, reviewer, acceptance agent, workers |
 | [playbook/acceptance.md](playbook/acceptance.md) | The user check and the acceptance run |
 | [REFERENCE.md](REFERENCE.md) | Everything technical: layout, placeholders, scripts, tests, licenses |
 
