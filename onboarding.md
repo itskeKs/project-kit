@@ -11,7 +11,7 @@ skills `/rpa-init` and `/rpa-gen-rules`, the wrapper `codex-task`. The host CLI 
 logged in by the owner: `glab auth status --hostname <host>` or `gh auth status`. Agents never
 enter tokens; if the login is missing, the session reports it and keeps working locally.
 
-The kit itself stays local and is never pushed; only the copied files land in the target
+The kit itself is never pushed into a project; only the copied files land in the target
 repository. For a self-hosted GitLab instance the host is a parameter everywhere there:
 `glab auth login --hostname <host>`, `GITLAB_HOST=<host>` for `glab` commands in the project,
 `kit/gitlab/protect.sh --host <host>`.

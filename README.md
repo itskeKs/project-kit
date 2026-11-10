@@ -1,93 +1,198 @@
 # project-kit
 
-The kit carries the way of working that emerged in a project with several coding agents working
-in parallel into further repositories, mainly on GitLab. It consists of three layers; only the
-second is copied.
+project-kit is a way of working for repositories in which several coding agents work in parallel,
+plus the files and scripts that install it. Each issue gets its own agent session, every change is
+reviewed by a fresh agent, and every milestone is accepted from the user's side. The owner decides
+and logs in; agents do everything else that an agent can do. The kit targets GitHub and GitLab.
+
+## How it works
+
+The kit has three layers. Only the second is copied into your repository.
 
 | Layer | Where it lives | What belongs to it |
 | --- | --- | --- |
-| 1 Global tooling | on the machine, not in the kit | `~/.claude/CLAUDE.md` (orchestration policy), agents `scout`/`builder`/`verifier`/`architect` in `~/.claude/agents/`, the skills `/rpa-init` and `/rpa-gen-rules`, the Codex wrapper `codex-task`, the "no attribution" rule |
-| 2 Files in the repo | [kit/](kit/) | Working contract `AGENTS.md` with `CLAUDE.md` symlink, `DESIGN.md`, docs skeleton with a template for the core journeys (`docs/acceptance/`), `SECURITY.md`, `CONTRIBUTING.md`, Makefile with `docs-check` and rule test, Codex hook, Gherkin guide; per host issue and PR/MR template, CI, protection of the main branch |
-| 3 Process | [playbook/](playbook/) | Roadmap → milestones → issues in the spec format with user check, one session per issue from claiming to the merge (empty context, fresh review by a `verifier`, starts its successor session as soon as its PR is open), the maintainer session only for PRs without a running session, the blind acceptance agent and the owner's acceptance per milestone, Codex briefs, CI gates |
+| 1 Global tooling | On your machine, not in the kit | `~/.claude/CLAUDE.md` (orchestration policy), the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`, the skills `/rpa-init` and `/rpa-gen-rules`, the Codex wrapper `codex-task`, the "no attribution" rule |
+| 2 Files in the repo | [kit/](kit/) | Working contract `AGENTS.md` with a `CLAUDE.md` symlink, `DESIGN.md`, docs skeleton with a template for the core journeys, `SECURITY.md`, `CONTRIBUTING.md`, Makefile with `docs-check` and a rule test, Codex hook, Gherkin guide; per host an issue template, a PR/MR template, CI and a script that protects the main branch |
+| 3 Process | [playbook/](playbook/) | The workflow, the roles, acceptance from the user's side, Codex briefs, the two session prompts and the `/kit` skill that starts and oversees sessions |
 
-The kit is not a dependency of the projects it serves: clone it once (by default to
-`~/Developer/project-kit`), and it travels project by project via `bootstrap.sh` into the respective
-repository. The project rules (`.claude/rules/*.md`, `.cursor/rules/*.mdc`) are deliberately not
-copied: they are generated per project with `/rpa-init` and `/rpa-gen-rules`, and the Codex hook
-from the kit attaches them.
+The kit is not a dependency of the projects it serves. Clone it once, and `bootstrap.sh` copies
+layer 2 into each repository. Project rules (`.claude/rules/`, `.cursor/rules/`) are not copied.
+`/rpa-init` and `/rpa-gen-rules` generate them per project, and the Codex hook from the kit
+attaches them.
 
-## Contents
+A change follows this path. The owner keeps a roadmap with milestones. Each backlog item becomes an
+issue in a spec format, with a user check that says what a user does and sees. One session per
+issue takes it from claiming to merge. It works in its own worktree, writes tests red first and
+opens the PR (GitLab: MR). A fresh `verifier` agent reviews it, and the session fixes the findings
+in rounds. After the third review the scope is frozen, and findings outside it become follow-up
+issues. As soon as its PR is open, or after its merge, the session starts a successor session for
+the next unblocked issue. Before the merge of a PR with a user check, a blind acceptance agent
+without code access tries the user check. Per milestone it runs over all core journeys, and the
+owner accepts the result. A maintainer session exists only for PRs that no session works on
+anymore. Merges run one at a time under a short lock, so CI has checked exactly what lands.
+
+Details: [workflow.md](playbook/workflow.md) (the path of a change), [roles.md](playbook/roles.md)
+(owner, orchestrator, Codex, subagents), [acceptance.md](playbook/acceptance.md) (user check and
+acceptance), [session-briefs/](playbook/session-briefs/) (the two session prompts).
+
+## Requirements
+
+- `git`, `bash` and Python 3.
+- `gh` (GitHub) or `glab` (GitLab), logged in by the owner. Agents never enter credentials.
+- Claude Code, for the `/kit` skill and the session briefs. The `/kit` skill starts detached
+  sessions with the Claude desktop app's session tools. In a terminal you paste the filled brief
+  into a new chat.
+- Optional: Codex, for the hook and the supplement skill.
+- Optional: ShellCheck or Docker, for the shell lint in `make test`.
+
+The kit expects the following on your machine but does not ship it. It comes from your own setup.
+
+- The orchestration policy in `~/.claude/CLAUDE.md`.
+- The agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`.
+  [roles.md](playbook/roles.md) describes what each one does.
+- The skills `/rpa-init` and `/rpa-gen-rules`, from EvilFreelancer's rpa-skills (MIT).
+- The wrapper `codex-task DIR BRIEF_FILE [LOG]`, needed only if you use Codex as a worker.
+
+The briefs name these pieces. Provide equivalents before you start sessions.
+
+## Quick start
+
+[onboarding.md](onboarding.md) has the long form. In short:
+
+1. Clone the kit. Any path works for `bootstrap.sh`; the docs and the `/kit` skill assume
+   `~/Developer/project-kit`.
+   ```bash
+   git clone git@github.com:itskeKs/project-kit.git ~/Developer/project-kit
+   ```
+2. Bootstrap the target repository, a new one or an existing one. Run this from the kit
+   directory. Existing files are never overwritten, and skipped files are reported. Add
+   `--dry-run` to preview.
+   ```bash
+   git -C ~/work/acme init -b main      # skip for an existing repository
+   ./bootstrap.sh ~/work/acme --host github   # or --host gitlab
+   ```
+   The main branch comes from `origin/HEAD`, else the checked-out branch. `--default-branch NAME`
+   sets it explicitly.
+3. Start Claude Code in the target repository. Run `/rpa-init`, then `/rpa-gen-rules`, then
+   `make test-agent-rules`.
+4. Fill `AGENTS.md` and `DESIGN.md` with the project facts and replace the open placeholders
+   (see [Placeholders](#placeholders)). Then get `make lint`, `make test`, `make docs-check` and
+   `make hooks` green and commit.
+5. Move the backlog into milestones and issues in the spec format. Write the core journeys in
+   `docs/acceptance/journeys.md` with the owner. [kit/gitlab/cli.md](kit/gitlab/cli.md) maps
+   every `gh` command of the process to `glab`.
+6. Let CI run once so the job names exist, then protect the main branch. Run this from the kit
+   directory. `--host` is for a self-hosted GitLab instance.
+   ```bash
+   kit/github/protect.sh owner/repo --check lint --check test --check docs
+   kit/gitlab/protect.sh group/project --host gitlab.example.com
+   ```
+   The checks are the job names from `tests-on-pr.yaml`. The GitLab script also lists unprotected
+   CI variables; the owner protects those.
+7. Start the first issue session in a new, empty chat, from the kit directory.
+   `fill-brief.py init` writes the project file `~/.config/project-kit/briefs/<project>.env`
+   once. Complete the TODO values it lists. `/kit` reads the same file.
+   ```bash
+   playbook/session-briefs/fill-brief.py init ~/work/acme
+   playbook/session-briefs/fill-brief.py issue ~/work/acme 1 --copy
+   ```
+   Or use the skill: `ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit`.
+   In a chat that runs in the project checkout, `/kit init` does the same as `fill-brief.py init`.
+   `/kit next` then starts the next unblocked issue, and `/kit status` shows what needs the owner.
+   `/kit issue <N>`, `/kit pr <N>`, `/kit bug <text>` and `/kit feat <text>` start other sessions.
+
+Each session merges its own PR and starts its successor. All sessions of a project run on one
+machine, because the merge lock and the worktree claims live under `/tmp`.
+
+## Repository layout
 
 ```
-bootstrap.sh            copies kit/common and kit/<host>/repo into a target repo, creates CLAUDE.md -> AGENTS.md,
-                        replaces host placeholders and the main branch
-onboarding.md           the recipe for a new project in one session
-playbook/               workflow, roles, acceptance from the user's perspective, Codex briefs, the two session prompts, fill-brief.py and kit-status.py, and the /kit skill that starts and oversees chains from a chat (Claude), with a Codex supplement
-kit/common/             files for every repo (English, with {{PLACEHOLDERS}})
-kit/github/repo/        .github/: issue template, PR template, tests-on-PR, release image (GHCR)
-kit/github/protect.sh   protected main branch with required checks via gh api
-kit/gitlab/repo/        .gitlab/: issue and MR template (Default.md), .gitlab-ci.yml with release job
-kit/gitlab/protect.sh   protected main branch, "Pipelines must succeed", approvals via glab api
-kit/gitlab/cli.md       every gh command of the process and its glab counterpart
-tests/test_bootstrap.sh bootstraps both hosts into a temp directory and checks the result
+bootstrap.sh              copies kit/common and kit/<host>/repo into a repository,
+                          creates CLAUDE.md -> AGENTS.md, fills host placeholders and the main branch
+onboarding.md             the recipe for a new project
+Makefile                  make test and make docs-check for the kit itself
+playbook/
+  workflow.md             the path of a change from roadmap to merge
+  roles.md                owner, orchestrator, Codex worker, subagents, acceptance agent
+  acceptance.md           user check, blind acceptance agent, owner's acceptance
+  codex-briefs.md         what a Codex brief contains and why runs fail
+  session-briefs/         issue-session.md, maintainer-session.md, fill-brief.py, kit-status.py
+  skills/kit/             the /kit skill for Claude Code
+  skills/kit-codex/       supplement that runs the same commands as $kit in Codex
+kit/common/               files for every repository, with {{PLACEHOLDERS}}
+  AGENTS.md DESIGN.md SECURITY.md CONTRIBUTING.md Makefile
+  docs/                   skeleton: roadmap, architecture, feature status, ADRs, operations,
+                          acceptance journeys
+  features/               Gherkin guide
+  scripts/                link checker, rule test, pre-commit checks
+  .codex/                 hook that attaches the generated rules to Codex sessions
+  .githooks/              pre-commit hook, enabled with make hooks
+kit/github/repo/.github/  issue template, PR template, tests-on-PR workflow, release image (GHCR)
+kit/github/protect.sh     protected main branch with required checks, via gh api
+kit/gitlab/repo/          .gitlab-ci.yml with a release job, issue and MR templates
+kit/gitlab/protect.sh     protected main branch, "Pipelines must succeed", approvals, via glab api
+kit/gitlab/cli.md         every gh command of the process and its glab counterpart
+tests/                    test_bootstrap.sh, test_fill_brief.py, test_kit_status.py
 ```
 
-Two kinds of placeholders appear in the kit files: host placeholders (`{{HOST_PR}}`,
-`{{HOST_CLI}}`, `{{HOST_CI_FILE}}` …) and `{{DEFAULT_BRANCH}}`, which `bootstrap.sh` replaces to
-match `--host` and the target's main branch (`origin/HEAD`, otherwise the checked-out branch;
-`--default-branch` sets it explicitly);
-project placeholders (`{{PROJECT_NAME}}`, `{{REPO}}`, `{{TEST_CMD}}`, `{{TEST_DB}}`,
-`{{SUITE_DURATION}}`, `{{LOCK_RULE}}`, `{{UI_EVIDENCE}}`, `{{PRODUCTION_TABOOS}}`,
-`{{BLOCKER_CATEGORIES}}` …) are filled in
-by the onboarding session. `grep -rn '{{' --exclude-dir=.git .` in the target repo shows what is
-still open. The kit files suit web applications with a database just as well as server software,
-apps and libraries: `AGENTS.md` has two variants for "Databases and containers", the evidence for
-surface changes and the lock rule are placeholders.
+## Placeholders
 
-Everything in the kit is English, like every project artifact (docs, issues, commits).
+Kit files carry two kinds of placeholders.
 
-## Onboarding in ten minutes
+| Kind | Placeholders | Filled by |
+| --- | --- | --- |
+| Host | `{{HOST}}`, `{{HOST_CLI}}`, `{{HOST_PR}}`, `{{HOST_PR_ABBR}}`, `{{HOST_ISSUE_TEMPLATE}}`, `{{HOST_PR_TEMPLATE}}`, `{{HOST_CI_FILE}}`, `{{HOST_ISSUE_VIEW}}`, `{{HOST_SECURITY_CHANNEL}}`, `{{DEFAULT_BRANCH}}` | `bootstrap.sh`, to match `--host` and the main branch |
+| Project | `{{PROJECT_NAME}}`, `{{PROJECT_ONE_LINER}}`, `{{REPO}}`, `{{OWNER}}`, `{{STACK}}`, `{{LICENSE}}`, `{{SOFTWARE_LANGUAGE}}`, `{{TEST_CMD}}`, `{{LINT_CMD}}`, `{{TEST_DB}}`, `{{SUITE_DURATION}}`, `{{LOCK_RULE}}`, `{{UI_EVIDENCE}}`, `{{ACCEPTANCE_ENV}}`, `{{PRODUCTION_TABOOS}}`, `{{BLOCKER_CATEGORIES}}`, `{{CI_IMAGE}}`, `{{DEPLOY_TARGET}}`, `{{PERSONA}}`, `{{SAMPLE_DATA}}`, `{{JOURNEY_TITLE}}` | The onboarding session, from the `/rpa-init` report and the owner |
 
-In detail in [onboarding.md](onboarding.md). In short:
+`{{BLOCKER_CATEGORIES}}` names the finding categories that are still fixed after the scope
+freeze. `{{LOCK_RULE}}`, `{{SUITE_DURATION}}`, `{{UI_EVIDENCE}}` and `{{BLOCKER_CATEGORIES}}` also
+appear in the session briefs.
 
-1. `mkdir new-project && git -C new-project init -b main` (or take an existing repo whose main
-   branch is adopted), then `./bootstrap.sh /path/to/repo --host gitlab` (or
-   `--host github`). Existing files are never overwritten, skipped files are reported.
-2. Start a Claude Code session in the target repo: `/rpa-init` (reads code, docs and tests,
-   sets up the environment, runs the tests), then `/rpa-gen-rules` (generates the
-   paired rules), then `make test-agent-rules`.
-3. Fill `AGENTS.md` and `DESIGN.md` with the project facts, replace the remaining placeholders.
-4. Transfer the backlog into milestones and issues in the spec format (the template is in the repo).
-   Write the core journeys in `docs/acceptance/journeys.md` with the owner; for an existing
-   project, first a blind acceptance run on the main branch ([playbook/acceptance.md](playbook/acceptance.md)).
-5. Let CI run once, then `kit/<host>/protect.sh` (GitLab: `--host` for a
-   self-hosted instance, or set `GITLAB_HOST`; `--branch` if the main branch is not called
-   `main`). The GitLab script reports unprotected CI variables; the owner protects those.
-6. Start the first issue session from [playbook/session-briefs/](playbook/session-briefs/) in a
-   new, empty chat; each session merges its own PR/MR and starts its successor session, the
-   maintainer session is needed only for PRs/MRs that no session is working on anymore
-   ([onboarding.md](onboarding.md) §8).
+Run this in the target repository to list what is still open:
 
-## Check it yourself
+```bash
+grep -rn '{{' --exclude-dir=.git .
+```
+
+`AGENTS.md` has two variants for "Databases and containers", one for projects with a database and
+one without. Keep exactly one. The same file suits web applications, servers, apps and libraries.
+
+## Working with Codex
+
+The hook in `kit/common/.codex/` attaches the generated rules to Codex sessions: the always-on
+rules at session start, the scoped rules before `apply_patch`, `Edit` or `Write`. It reads the
+`.cursor/rules/` tree; approve it once per clone with `/hooks`.
+[codex-briefs.md](playbook/codex-briefs.md) lists what every Codex brief states: scope, red-first
+tests, prohibitions on push, merge and production, and a short report. The supplement skill in
+`playbook/skills/kit-codex/` runs the `/kit` commands as `$kit` in Codex:
+
+```bash
+ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
+```
+
+## Tests
 
 ```bash
 make test
 ```
 
-bootstraps both hosts into a temp directory, checks files, symlink, placeholders,
-no overwriting, idempotence and runs the link checker and the rule test on the result;
-ShellCheck runs if it is installed or Docker is running.
+runs three suites. `tests/test_bootstrap.sh` bootstraps both hosts into a temp directory. It checks
+files, the symlink, placeholders, default-branch detection, no overwriting and idempotence. On the
+result it runs the link checker and the rule test. `tests/test_fill_brief.py` covers `fill-brief.py`.
+`tests/test_kit_status.py` covers `kit-status.py` offline, with fake `gh` and `glab`. ShellCheck
+then runs over the shell scripts, directly if installed or through Docker, else it is skipped.
 
 ```bash
 make docs-check
 ```
 
-checks the relative links in the kit (without `kit/github/` and `kit/gitlab/`, whose links only
-resolve in the bootstrapped repo; the test covers that).
+checks the relative links in the kit. It skips `kit/github/` and `kit/gitlab/`, whose links resolve
+only in a bootstrapped repository; `test_bootstrap.sh` covers those.
 
 ## Origin and licenses
 
 `kit/common/.codex/hooks/attach_rules.py` and `.codex/hooks.json` are taken over from coddy-agent
-(MIT, Copyright (c) 2026 Pavel Rykov); the license text is in the script. The skills `/rpa-init` and
-`/rpa-gen-rules` come from EvilFreelancer's rpa-skills (MIT) and are not in the kit. The
-link checker, the rule test and the templates are generalized from the originating project.
+(MIT, Copyright (c) 2026 Pavel Rykov); the license text is in the script. The skills `/rpa-init`
+and `/rpa-gen-rules` come from EvilFreelancer's rpa-skills (MIT) and are not in the kit. The link
+checker, the rule test and the templates are generalized from the project where the process
+originated. The repository has no license file of its own.
