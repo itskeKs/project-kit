@@ -88,4 +88,4 @@ agent does.
 | [REFERENCE.md](REFERENCE.md) | Everything technical: layout, placeholders, scripts, tests, licenses |
 
 The Codex hook is taken from [coddy-agent](https://github.com/coddy-project/coddy-agent) (MIT).
-This repository has no license file of its own yet.
+This repository itself is under the [MIT License](LICENSE).

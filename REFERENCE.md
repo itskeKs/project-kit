@@ -234,4 +234,4 @@ only in a bootstrapped repository; `test_bootstrap.sh` covers those.
 and `/rpa-gen-rules` come from [EvilFreelancer/rpa-skills](https://github.com/EvilFreelancer/rpa-skills) (MIT)
 and are not in the kit. The link
 checker, the rule test and the templates are generalized from the project where the process
-originated. The repository has no license file of its own.
+originated. The repository itself is under the [MIT License](LICENSE).
