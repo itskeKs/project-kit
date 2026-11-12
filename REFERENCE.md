@@ -35,6 +35,16 @@ without code access tries the user check. Per milestone it runs over all core jo
 owner accepts the result. A maintainer session exists only for PRs that no session works on
 anymore. Merges run one at a time under a short lock, so CI has checked exactly what lands.
 
+In a repository where someone else merges (an upstream project we contribute to), the project file
+says `MERGE_BY=maintainer`. The same briefs then switch blocks: the session claims its issue by
+assigning it to the owner, hands its PR over to the maintainer instead of merging it, posts no
+comment on issues or PRs (questions and outcomes go into its report), merges `origin/<main>` into
+its branch, never rebases or force-pushes, and stops at once when anyone else pushes to the PR. It
+picks successor issues only from the owner's own (assigned to the owner, or opened by the owner
+without an assignee), and the maintainer session shrinks to one round of fixes on our open PR.
+`kit-status.py` lists those PRs as "Waiting for maintainer". Without the key, `MERGE_BY=session`
+applies and nothing changes.
+
 Details: [workflow.md](playbook/workflow.md) (the path of a change), [roles.md](playbook/roles.md)
 (owner, orchestrator, Codex, subagents), [acceptance.md](playbook/acceptance.md) (user check and
 acceptance), [session-briefs/](playbook/session-briefs/) (the two session prompts).
@@ -111,7 +121,8 @@ If you use other tooling for these pieces, provide equivalents before you start 
    CI variables; the owner protects those.
 7. Start the first issue session in a new, empty chat, from the kit directory.
    `fill-brief.py init` writes the project file `~/.config/project-kit/briefs/<project>.env`
-   once. Complete the TODO values it lists. `/kit` reads the same file.
+   once. Complete the TODO values it lists; `MERGE_BY` is `session` unless someone else merges the
+   project's PRs. `/kit` reads the same file.
    ```bash
    playbook/session-briefs/fill-brief.py init ~/work/acme
    playbook/session-briefs/fill-brief.py issue ~/work/acme 1 --copy
@@ -121,8 +132,9 @@ If you use other tooling for these pieces, provide equivalents before you start 
    `/kit next` then starts the next unblocked issue, and `/kit status` shows what needs the owner.
    `/kit issue <N>`, `/kit pr <N>`, `/kit bug <text>` and `/kit feat <text>` start other sessions.
 
-Each session merges its own PR and starts its successor. All sessions of a project run on one
-machine, because the merge lock and the worktree claims live under `/tmp`.
+Each session merges its own PR (with `MERGE_BY=maintainer`: hands it over) and starts its successor.
+All sessions of a project run on one machine, because the merge lock and the worktree claims live
+under `/tmp`.
 
 ## Repository layout
 

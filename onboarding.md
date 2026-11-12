@@ -174,7 +174,8 @@ the image to the host's registry.
 
 ## 8 Start the session chain
 
-Every issue gets its own session with empty context, which takes it from claiming it to the merge;
+Every issue gets its own session with empty context, which takes it from claiming it to the merge
+(to the handover to the maintainer, where the project file says `MERGE_BY=maintainer`: see below);
 the templates are in [playbook/session-briefs/](playbook/session-briefs/) (`<KIT_PATH>`
 in the templates is the kit's local path, because the playbook does not live in the project). The
 owner starts only the beginning of a chain, after that each session starts its successor session
@@ -212,6 +213,16 @@ of delegating to `codex-task`, and a finished task is not archived automatically
    or it comes from outside the kit. It brings it to completion and starts no successor
    session. For a member of a stack whose session ended before the base was merged, the base's
    session starts it itself after its merge.
+
+For a repository whose PRs someone else merges (an upstream project), set `MERGE_BY=maintainer` in
+the project file (`session` is the default). The briefs then hold their maintainer-mode blocks:
+the session assigns the issue to the owner and posts no comment on any issue or PR, hands its PR over
+instead of merging it (no merge lock, no `pr merge`), merges `origin/<main>` into its branch and never
+rebases or force-pushes, stops at once when anyone else pushes to or reworks the PR, and picks
+successor issues only from the owner's own (assigned to the owner, or opened by the owner without an
+assignee). The maintainer session then serves our open PR for one round and never merges. `MERGE_METHOD`
+may stay `TODO` (no maintainer-mode text reads it); `LOCK_MAX` is still needed for the acceptance lock.
+`playbook/session-briefs/kit-status.py` lists such PRs as "Waiting for maintainer".
 
 In the Claude desktop app a session starts its successor session with `start_session` (fresh
 context, no fork, without an app worktree); that is why the owner also starts the first session of

@@ -345,6 +345,49 @@ class NeedsYouTest(unittest.TestCase):
         self.assertEqual([(i["project"], i["kind"]) for i in items], [("a", "error"), ("a", "blocked"), ("b", "question")])
 
 
+class MaintainerModeTest(unittest.TestCase):
+    """MERGE_BY=maintainer: our open PRs wait for the maintainer and nothing here ever calls a session chain running."""
+
+    def test_merge_by_defaults_to_session_and_only_maintainer_switches(self):
+        self.assertEqual(ks.project_from_env({}, "s").merge_by, "session")
+        self.assertEqual(ks.project_from_env({"MERGE_BY": "session"}, "s").merge_by, "session")
+        self.assertEqual(ks.project_from_env({"MERGE_BY": " Maintainer "}, "s").merge_by, "maintainer")
+        self.assertEqual(ks.project_from_env({"MERGE_BY": "TODO"}, "s").merge_by, "session")
+
+    def test_foreign_authors_are_commits_by_anyone_but_us(self):
+        own = {"me-login", "me@t.test", "Me"}
+        ours = ("me-login", "me@t.test", "Me")
+        self.assertEqual(ks.foreign_authors([ours, ours], own), [])
+        self.assertEqual(ks.foreign_authors([ours, ("Maint", "m@x.test", "Maintainer"), ("maint", None, None)], own), ["Maint"])
+        self.assertEqual(ks.foreign_authors([("", "ME@T.TEST", "other name")], own), [])  # any identifier matching is enough
+        self.assertEqual(ks.foreign_authors([("b", None, None), ("A", None, None), ("a", None, None)], own), ["A", "b"])
+        self.assertEqual(ks.foreign_authors([(None, "", "  ")], own), [])  # nobody to name: skipped
+        self.assertEqual(ks.foreign_authors(None, own), [])
+
+    def test_waiting_label_says_taken_over_before_anything_else(self):
+        self.assertEqual(ks.waiting_label({"taken_over": True, "conflicts": True, "review": "APPROVED"}), "taken over by maintainer")
+        self.assertEqual(ks.waiting_label({"conflicts": True, "review": "CHANGES_REQUESTED"}), "conflicts, changes requested")
+        self.assertEqual(ks.waiting_label({"review": "approved"}), "approved")
+        self.assertEqual(ks.waiting_label({"review": "REVIEW_REQUIRED"}), "review required")
+        self.assertEqual(ks.waiting_label({"ci": "red", "review": ""}), "waiting")
+
+    def test_an_open_pr_of_ours_is_not_a_running_chain_but_a_worktree_without_pr_is(self):
+        base = dict(milestone="M1", merge_by="maintainer", issues=[issue(2, "next one"), issue(3, pr=True)],
+                    prs=[pr(10, taken_over=True)], worktrees=[worktree(3, pr=10)])
+        items = ks.needs_you([project_result(**base)])
+        self.assertEqual([i["kind"] for i in items], ["chain_ended"])
+        self.assertIn("nothing in progress, but 1 open unblocked issue(s), next #2 next one", items[0]["text"])
+        self.assertNotIn("no open PR", items[0]["text"])
+        working = {**base, "worktrees": [worktree(3, pr=10), worktree(2)]}
+        self.assertEqual(ks.needs_you([project_result(**working)]), [])
+        # the same data in session mode: an open PR is a running chain
+        self.assertEqual(ks.needs_you([project_result(**{**base, "merge_by": "session"})]), [])
+
+    def test_maintainer_markers_from_comments_are_never_read(self):
+        result = project_result(merge_by="maintainer", prs=[pr(7, marker=None)])
+        self.assertEqual(ks.needs_you([result]), [])
+
+
 # ---------------------------------------------------------------------------------------------
 # End to end with fake CLIs
 # ---------------------------------------------------------------------------------------------
@@ -382,20 +425,56 @@ DATA = {{
         "comments": [comment("Blocked: x", 90), comment("## Owner decision\\n\\nGo ahead.", 60)]}},
     ],
   }},
+  "acme/up": {{
+    "pr": [
+      {{"number": 30, "title": "feat: ours and approved", "headRefName": "feat/ours", "isDraft": False, "labels": [], "url": "https://gh/pull/30",
+        "body": "Refs #11", "statusCheckRollup": [ok], "reviewDecision": "APPROVED", "mergeable": "MERGEABLE",
+        "author": {{"login": "me-login", "name": "Me"}},
+        "commits": [{{"authors": [{{"login": "me-login", "email": "me@t.test", "name": "Me"}}]}}]}},
+      {{"number": 31, "title": "fix: ours, taken over", "headRefName": "fix/taken", "isDraft": False, "labels": [], "url": "https://gh/pull/31",
+        "body": "", "statusCheckRollup": [ok, bad], "reviewDecision": "CHANGES_REQUESTED", "mergeable": "CONFLICTING",
+        "author": {{"login": "me-login", "name": "Me"}},
+        "commits": [{{"authors": [{{"login": "me-login", "email": "me@t.test", "name": "Me"}}]}},
+                    {{"authors": [{{"login": "maint", "email": "maint@x.test", "name": "Maintainer"}}]}}]}},
+      {{"number": 32, "title": "feat: somebody else's", "headRefName": "feat/else", "isDraft": False, "labels": [], "url": "https://gh/pull/32",
+        "body": "", "statusCheckRollup": [ok], "reviewDecision": "", "mergeable": "MERGEABLE",
+        "author": {{"login": "other", "name": "Other"}}, "commits": []}},
+    ],
+    "issue": [
+      {{"number": 11, "title": "assigned to me", "labels": [], "url": "https://gh/issues/11", "comments": [],
+        "assignees": [{{"login": "me-login"}}], "author": {{"login": "maint"}}}},
+      {{"number": 12, "title": "opened by me, nobody assigned", "labels": [], "url": "https://gh/issues/12", "comments": [],
+        "assignees": [], "author": {{"login": "me-login"}}}},
+      {{"number": 13, "title": "opened by me, assigned to the maintainer", "labels": [], "url": "https://gh/issues/13", "comments": [],
+        "assignees": [{{"login": "maint"}}], "author": {{"login": "me-login"}}}},
+      {{"number": 14, "title": "somebody else's", "labels": [], "url": "https://gh/issues/14", "comments": [],
+        "assignees": [], "author": {{"login": "other"}}}},
+    ],
+  }},
   "acme/empty": {{"pr": [], "issue": [
       {{"number": 1, "title": "next in line", "labels": [], "url": "https://gh/issues/1", "comments": []}}]}},
 }}
 if repo not in DATA:
     sys.stderr.write("GraphQL: Could not resolve to a Repository with the name '" + repo + "'. (repository)\\n")
     sys.exit(1)
+def option(name):
+    return args[args.index(name) + 1] if name in args else None
 if args[:2] == ["pr", "list"]:
-    print(json.dumps(DATA[repo]["pr"]))
+    found = DATA[repo]["pr"]
+    if option("--author") == "@me":
+        found = [d for d in found if d["author"]["login"] == "me-login"]
+    print(json.dumps(found))
 elif args[:2] == ["issue", "list"]:
-    milestone = args[args.index("--milestone") + 1] if "--milestone" in args else "M1"
+    milestone = option("--milestone") or "M1"
     if milestone not in ("M1", "M2"):
         sys.stderr.write("no milestone found with the title or number '" + milestone + "'\\n")
         sys.exit(1)
-    print(json.dumps(DATA[repo]["issue"] if milestone == "M1" else []))
+    found = DATA[repo]["issue"] if milestone == "M1" else []
+    if option("--assignee") == "@me":
+        found = [d for d in found if any(a["login"] == "me-login" for a in d["assignees"])]
+    if option("--author") == "@me":
+        found = [d for d in found if d["author"]["login"] == "me-login" and not d["assignees"]] if option("--search") == "no:assignee" else []
+    print(json.dumps(found))
 else:
     sys.stderr.write("fake gh: unexpected " + " ".join(args) + "\\n")
     sys.exit(2)
@@ -428,6 +507,27 @@ elif path.startswith("projects/acme%2Fgl/issues?"):
                       {{"iid": 1, "title": "gl quiet", "labels": [], "web_url": "https://gl/issues/1", "user_notes_count": 0}}]))
 elif path.startswith("projects/acme%2Fgl/issues/2/notes?"):
     print(json.dumps([note("Blocked: spec is wrong", "2026-11-09T09:00:00.000Z")]))
+elif path.startswith("projects/acme%2Fglm/merge_requests?"):
+    if "scope=created_by_me" not in path:
+        sys.stderr.write("fake glab: an unfiltered MR list\\n")
+        sys.exit(2)
+    print(json.dumps([{{"iid": 8, "title": "feat: eight", "source_branch": "feat/eight", "draft": False, "labels": [],
+                       "web_url": "https://gl/mr/8", "description": "Refs #5", "user_notes_count": 4,
+                       "author": {{"username": "me", "name": "Me"}}, "has_conflicts": True}}]))
+elif path == "projects/acme%2Fglm/merge_requests/8":
+    print(json.dumps({{"head_pipeline": {{"status": "failed"}}}}))
+elif path.startswith("projects/acme%2Fglm/merge_requests/8/commits"):
+    print(json.dumps([{{"author_name": "Me", "author_email": "me@t.test"}}, {{"author_name": "Maint", "author_email": "maint@x.test"}}]))
+elif path.startswith("projects/acme%2Fglm/merge_requests/8/approvals"):
+    print(json.dumps({{"approved": True}}))
+elif path.startswith("projects/acme%2Fglm/issues?"):
+    if "scope=assigned_to_me" in path:
+        print(json.dumps([{{"iid": 5, "title": "gl assigned to me", "labels": [], "web_url": "https://gl/issues/5", "user_notes_count": 0}}]))
+    elif "scope=created_by_me" in path and "assignee_id=None" in path:
+        print(json.dumps([{{"iid": 6, "title": "gl opened by me", "labels": [], "web_url": "https://gl/issues/6", "user_notes_count": 0}}]))
+    else:
+        sys.stderr.write("fake glab: an unfiltered issue list\\n")
+        sys.exit(2)
 else:
     sys.stderr.write("fake glab: unexpected " + path + "\\n")
     sys.exit(2)
@@ -479,6 +579,20 @@ class EndToEndTest(unittest.TestCase):
         git("init", "-q", "-b", "main", str(gl))
         git("remote", "add", "origin", "git@gitlab.example.test:acme/gl.git", cwd=gl)
 
+        # up: a repository whose maintainer merges; its issue 11 has our PR 30 and a worktree
+        up = base / "up"
+        up.mkdir()
+        git("init", "-q", "-b", "main", str(up))
+        git("config", "user.name", "Me", cwd=up)
+        git("config", "user.email", "me@t.test", cwd=up)
+        git("commit", "--allow-empty", "-q", "-m", "init", cwd=up)
+        git("worktree", "add", "-q", "../up-issue-11", "-b", "issue-11", cwd=up)
+        glm = base / "glm"
+        glm.mkdir()
+        git("init", "-q", "-b", "main", str(glm))
+        git("config", "user.name", "Someone", cwd=glm)
+        git("remote", "add", "origin", "git@gitlab.example.test:acme/glm.git", cwd=glm)
+
         self.lock_dir = base / "locks"
         self.lock_dir.mkdir()
         for name, minutes, pr_no in (("kitdemo-merge.lock", 100, 20), ("kitdemo-acceptance.lock", 5, 21)):
@@ -491,6 +605,8 @@ class EndToEndTest(unittest.TestCase):
             "demo": f"PROJECT_NAME=kitdemo\nREPO=acme/demo\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={demo}\nMAIN_BRANCH=main\nMILESTONE=M1\nLOCK_MAX=30 minutes\n",
             "empty": f"PROJECT_NAME=kitempty\nREPO=acme/empty\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={empty}\nMAIN_BRANCH=main\nMILESTONE=M1\nLOCK_MAX=TODO\n",
             "gitlab": f"PROJECT_NAME=kitgl\nREPO=acme/gl\nHOST_CLI=glab\nHOST_PR_ABBR=MR\nREPO_PATH={gl}\nMAIN_BRANCH=main\nMILESTONE=none\nLOCK_MAX=TODO\n",
+            "upstream": f"PROJECT_NAME=kitup\nREPO=acme/up\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={up}\nMAIN_BRANCH=main\nMILESTONE=M1\nLOCK_MAX=TODO\nMERGE_BY=maintainer\n",
+            "glm": f"PROJECT_NAME=kitglm\nREPO=acme/glm\nHOST_CLI=glab\nHOST_PR_ABBR=MR\nREPO_PATH={glm}\nMAIN_BRANCH=main\nMILESTONE=none\nLOCK_MAX=TODO\nMERGE_BY=maintainer\n",
             "broken": f"PROJECT_NAME=kitbroken\nREPO=acme/nowhere\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={base / 'missing'}\nMAIN_BRANCH=main\nMILESTONE=none\nLOCK_MAX=TODO\n",
         }
         for stem, text in projects.items():
@@ -568,6 +684,47 @@ class EndToEndTest(unittest.TestCase):
         self.assertTrue(issues[2]["flags"]["blocked"])
         self.assertEqual(issues[2]["pr_numbers"], [3])  # MR 3 says "Refs #2"
         self.assertFalse(issues[1]["flags"]["blocked"])
+
+    def test_github_project_whose_maintainer_merges_lists_only_ours_as_waiting(self):
+        doc = self.document("upstream")
+        project = doc["projects"][0]
+        self.assertEqual((project["errors"], project["merge_by"], project["waiting"]), ([], "maintainer", [30, 31]))
+        prs = {p["number"]: p for p in project["prs"]}
+        self.assertEqual(sorted(prs), [30, 31])  # 32 is somebody else's
+        self.assertEqual((prs[30]["ci"], prs[30]["review"], prs[30]["taken_over"], prs[30]["marker_label"]), ("green", "APPROVED", False, "approved"))
+        self.assertEqual((prs[31]["ci"], prs[31]["review"], prs[31]["conflicts"]), ("red", "CHANGES_REQUESTED", True))
+        self.assertEqual((prs[31]["taken_over"], prs[31]["foreign_authors"], prs[31]["marker_label"]), (True, ["maint"], "taken over by maintainer"))
+        self.assertIsNone(prs[31]["marker"])
+        self.assertEqual({i["number"] for i in project["issues"]}, {11, 12})  # assigned to us, or opened by us and unassigned
+        self.assertEqual(project["issues"][0]["pr_numbers"], [30])
+        # our open PR is no running chain: 12 is free, the worktree of 11 belongs to PR 30
+        self.assertEqual([(i["kind"], i["url"]) for i in doc["needs_you"]], [("chain_ended", "https://gh/issues/12")])
+        self.assertIn("nothing in progress, but 1 open unblocked issue(s), next #12", doc["needs_you"][0]["text"])
+
+    def test_waiting_section_in_the_text_output(self):
+        out = self.run_script("upstream").stdout
+        self.assertIn("maintainer merges)", out)
+        self.assertIn("  Waiting for maintainer (2)", out)
+        self.assertNotIn("PRs (", out)
+        waiting = out.split("Waiting for maintainer")[1].split("Issues")[0]
+        self.assertRegex(waiting, r"#30 .*ci green\s+approved")
+        self.assertRegex(waiting, r"#31 .*ci red\s+taken over by maintainer \(maint\)")
+        self.assertNotIn("#32", out)
+
+    def test_gitlab_project_whose_maintainer_merges_reads_commits_and_approval_per_mr(self):
+        project = self.document("glm")["projects"][0]
+        self.assertEqual(project["errors"], [])
+        (mr,) = project["prs"]
+        self.assertEqual((mr["number"], mr["ci"], mr["review"], mr["conflicts"]), (8, "red", "APPROVED", True))
+        self.assertEqual((mr["taken_over"], mr["foreign_authors"]), (True, ["Maint"]))  # "Someone" is the checkout's git name, not "Me"
+        self.assertEqual(project["waiting"], [8])
+        self.assertEqual({i["number"] for i in project["issues"]}, {5, 6})
+
+    def test_session_projects_are_not_changed_by_the_new_mode(self):
+        project = self.document("demo")["projects"][0]
+        self.assertEqual((project["merge_by"], project["waiting"]), ("session", []))
+        self.assertTrue(all("taken_over" not in p for p in project["prs"]))
+        self.assertNotIn("Waiting for maintainer", self.run_script("demo").stdout)
 
     def test_errors_stay_in_their_project_and_do_not_stop_the_run(self):
         doc = self.document("broken", "demo")

@@ -18,6 +18,17 @@ checkout contains the current directory.
 
 Values given on the command line win over the project file; the project file wins over the
 derived defaults. Nothing here touches the repository.
+
+The briefs hold conditional blocks, each marker on a line of its own, no nesting:
+
+    <!-- if MERGE_BY=maintainer -->
+    text kept when the project file says MERGE_BY=maintainer
+    <!-- else -->
+    text kept for every other value (optional; without it nothing is kept)
+    <!-- endif -->
+
+The marker lines are dropped and one branch stays, so with MERGE_BY=session (the default, also for a
+project file without the key) a brief renders exactly as it did before the blocks existed.
 """
 
 import argparse
@@ -33,6 +44,11 @@ KIT_PATH = HERE.parent.parent
 BRIEFS = {"issue": HERE / "issue-session.md", "maintainer": HERE / "maintainer-session.md"}
 CONFIG_DIR = Path(os.environ.get("PROJECT_KIT_CONFIG", Path.home() / ".config" / "project-kit")) / "briefs"
 TODO = "TODO"
+MERGE_BY_VALUES = ("session", "maintainer")
+MERGE_ONLY = ("MERGE_METHOD", "LOCK_MAX")  # with MERGE_BY=maintainer these need a value only where a brief still names them
+CONDITIONAL = re.compile(
+    r"^<!-- if (\w+)=(\w+) -->\n(.*?)^(?:<!-- else -->\n(.*?))?<!-- endif -->(?:\n|\Z)", re.M | re.S)
+MARKER = re.compile(r"^<!-- (?:if \w+=\w+|else|endif) -->", re.M)
 
 # Keys the owner fills once per project, with the help text written into the project file.
 PROJECT_KEYS = [
@@ -55,6 +71,7 @@ PROJECT_KEYS = [
     ("KIT_PATH", "absolute path of this kit"),
     ("MAIN_BRANCH", "main, master, develop ..."),
     ("MERGE_METHOD", "squash or merge"),
+    ("MERGE_BY", "'session' (the issue session merges its own PR) or 'maintainer' (upstream: someone else merges; the session hands over and never merges)"),
     ("LOCAL_GATE", "gates the CI cannot run, or 'none'"),
     ("LOCK_MAX", "twice SUITE_DURATION plus 30 minutes, e.g. '34 minutes'"),
     ("MILESTONE", "default milestone for issue chains, or 'none'"),
@@ -91,6 +108,7 @@ def derive(repo: Path):
     values["MERGE_METHOD"] = "squash"
     values["LOCAL_GATE"] = "none"
     values["HANDOVER"] = "after merge"
+    values["MERGE_BY"] = "session"
     values["MILESTONE"] = "none"
     url = run(["git", "-C", str(repo), "remote", "get-url", "origin"])
     m = re.match(r"(?:git@|https?://)([^:/]+)[:/](.+?)(?:\.git)?$", url)
@@ -199,16 +217,50 @@ def missing(values, keys):
     return [k for k in keys if values.get(k, TODO) in ("", TODO)]
 
 
+def merge_by_error(values):
+    """Why the project's MERGE_BY is not usable, or ''."""
+    if values["MERGE_BY"] in MERGE_BY_VALUES:
+        return ""
+    return f"MERGE_BY must be {' or '.join(MERGE_BY_VALUES)}, is {values['MERGE_BY']!r}"
+
+
+def resolve_conditionals(body, values):
+    """Keep the branch of every `<!-- if KEY=value -->` block that the project's values select."""
+    def pick(match):
+        key, expected, then, otherwise = match.groups()
+        if key not in values:
+            sys.exit(f"conditional block on unknown key {key}")
+        return then if values[key] == expected else (otherwise or "")
+
+    body = CONDITIONAL.sub(pick, body)
+    if MARKER.search(body):
+        sys.exit("unbalanced conditional marker in the brief")
+    return body
+
+
+def brief_body(kind, values):
+    """The brief below its separator, conditional blocks resolved, placeholders still in place."""
+    if merge_by_error(values):
+        sys.exit(merge_by_error(values))
+    return resolve_conditionals(BRIEFS[kind].read_text().split("\n---\n", 1)[1], values)
+
+
+def names(text, key):
+    return f"<{key}>" in text or f"{{{{{key}}}}}" in text
+
+
 def fill(kind, values):
     brief = BRIEFS[kind]
     keys = table_keys(brief)
+    body = brief_body(kind, values)
     gaps = missing(values, keys)
+    if values["MERGE_BY"] != "session":
+        gaps = [k for k in gaps if k not in MERGE_ONLY or names(body, k)]
     if gaps:
         sys.exit(f"missing or TODO: {', '.join(gaps)} (edit {config_path(Path(values['REPO_PATH']))})")
-    body = brief.read_text().split("\n---\n", 1)[1]
     for key in keys:
         body = body.replace(f"<{key}>", values[key]).replace(f"{{{{{key}}}}}", values[key])
-    left = [k for k in keys if f"<{k}>" in body or f"{{{{{k}}}}}" in body]
+    left = [k for k in keys if names(body, k)]
     if left:
         sys.exit(f"placeholders left after filling: {', '.join(left)}")
     return body.lstrip("\n")
@@ -258,9 +310,14 @@ def main(argv=None):
         print(f"fill in: {', '.join(todo)}" if todo else "no TODOs left")
         return
 
-    values = {**{k: TODO for k, _ in PROJECT_KEYS}, **read_config(path)}
+    values = {**{k: TODO for k, _ in PROJECT_KEYS}, "MERGE_BY": "session", **read_config(path)}
     if args.cmd == "check":
+        if merge_by_error(values):
+            sys.exit(f"{path}: {merge_by_error(values)}")
         todo = missing(values, [k for k, _ in PROJECT_KEYS])
+        if values["MERGE_BY"] != "session":
+            text = "".join(brief_body(kind, values) for kind in BRIEFS)
+            todo = [k for k in todo if k not in MERGE_ONLY or names(text, k)]
         print(f"{path}: " + (f"fill in {', '.join(todo)}" if todo else "complete"))
         return
 

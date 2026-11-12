@@ -17,6 +17,9 @@ with Codex, on GitHub or GitLab.
   agent that never sees the code tries exactly that before the merge. Per milestone, you accept.
 - **A chain that keeps going.** When a session has opened its pull request, it starts the session
   for the next issue. Several chains can run in parallel.
+- **Repositories that someone else merges.** With `MERGE_BY=maintainer` in the project file, a
+  session hands its pull request over to the maintainer instead of merging it, posts no comment on
+  their issues or pull requests, and stops when the maintainer pushes to it.
 - **`/kit` in Claude Code, `$kit` in Codex.** `/kit status` shows what is running and what waits for
   you. `/kit next` starts the next issue. `/kit bug <text>` turns a sentence into an issue and starts
   its session. The sessions themselves run as Claude Code sessions or as Codex threads.

@@ -93,7 +93,9 @@ and then starts its successor as `<HANDOVER>` says.
    change standing project rules to fit a brief, and do not add approval steps
    the brief does not have: the merge of the task's own PR after the fresh review,
    green CI and the gates is authorized by the brief, no chat confirmation is
-   needed for it. Ask the owner only where the brief asks.
+   needed for it. Ask the owner only where the brief asks. A brief for a project
+   with `MERGE_BY=maintainer` has no merge at all: it hands the PR over to the
+   maintainer and posts no comment on any issue or PR.
 2. Handover: follow `<HANDOVER>` exactly as a Claude session would. At the point
    the brief names (after the PR, or after the merge), start the successor with
    `create_thread` in the same project, the same title convention and a brief
@@ -105,7 +107,7 @@ and then starts its successor as `<HANDOVER>` says.
    PR, the blind acceptance run), use a separate Codex thread or subagent that
    receives exactly those inputs and nothing from this task's history. If no
    such tool is available, do the review in this task and state in the PR comment
-   that it was not independent; never claim an independent review you did not
+   (in a `MERGE_BY=maintainer` brief: in the PR description) that it was not independent; never claim an independent review you did not
    run. Never re-enable disabled skills.
 4. Tool mapping: `start_session` is `create_thread`; `detach_session` has no
    counterpart and is skipped; `set_session_title` is the native rename, or the

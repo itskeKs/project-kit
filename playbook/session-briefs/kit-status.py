@@ -12,7 +12,10 @@ acceptance locks in /tmp. A final section "Needs you" collects what only the own
 A project argument is a part of an env file's name (several arguments add up); without one all
 projects are read. Errors (auth, network, missing CLI) are reported in the project's block and never
 stop the run. Optional keys in a project file: GITLAB_HOST (otherwise taken from the checkout's
-origin remote). $PROJECT_KIT_LOCK_DIR replaces /tmp as the place of the lock directories.
+origin remote), MERGE_BY (`session`, the default, or `maintainer`: someone else merges, so only our own
+open PRs are listed, as "Waiting for maintainer" with CI, review decision and whether others committed
+to them, and only the owner's issues: assigned to the owner, or opened by the owner without an assignee).
+$PROJECT_KIT_LOCK_DIR replaces /tmp as the place of the lock directories.
 
 Nothing here writes to a host, a repository or a lock.
 """
@@ -85,6 +88,7 @@ class Project(NamedTuple):
     milestone: str  # "" when there is none
     lock_max: int
     gitlab_host: str
+    merge_by: str = "session"  # "maintainer": someone else merges our PRs
 
 
 def project_from_env(env: dict, stem: str) -> Project:
@@ -105,6 +109,7 @@ def project_from_env(env: dict, stem: str) -> Project:
         milestone="" if milestone.lower() == "none" else milestone,
         lock_max=parse_lock_max(env.get("LOCK_MAX")),
         gitlab_host=value("GITLAB_HOST"),
+        merge_by="maintainer" if value("MERGE_BY").lower() == "maintainer" else "session",
     )
 
 
@@ -281,6 +286,35 @@ def summarize_pipeline(status) -> str:
     return "pending"  # created, waiting_for_resource, preparing, pending, running, scheduled, manual
 
 
+def foreign_authors(authors, own) -> list:
+    """Authors of a PR's commits that are not ours. `authors` holds one tuple of identifiers per commit author
+    (a GitHub login, e-mail and name; a GitLab name and e-mail), `own` our identifiers; an author is ours when any
+    of its identifiers matches one of ours, case-insensitively. Returns each foreign author's first identifier,
+    sorted, once; an author without any identifier cannot be told apart and is skipped."""
+    mine = {o.strip().casefold() for o in own if o and o.strip()}
+    found = {}
+    for identifiers in authors or []:
+        known = [i.strip() for i in identifiers if i and i.strip()]
+        if known and not any(i.casefold() in mine for i in known):
+            found.setdefault(known[0].casefold(), known[0])
+    return sorted(found.values(), key=str.casefold)
+
+
+REVIEW_LABELS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes requested", "REVIEW_REQUIRED": "review required"}
+
+
+def waiting_label(pr) -> str:
+    """What one of our PRs that waits for the maintainer shows next to its CI state: that the maintainer took it
+    over, or its conflicts and review decision."""
+    if pr.get("taken_over"):
+        return "taken over by maintainer"
+    parts = ["conflicts"] if pr.get("conflicts") else []
+    review = REVIEW_LABELS.get((pr.get("review") or "").upper())
+    if review:
+        parts.append(review)
+    return ", ".join(parts) or "waiting"
+
+
 def _parse_time(text: str):
     text = (text or "").strip()
     if not text:
@@ -392,12 +426,14 @@ def needs_you(projects) -> list:
                 if wt["kind"] == "issue" and not wt.get("pr") and idle is not None and idle > ORPHAN_HOURS:
                     add("orphan", f"worktree {wt['name']} has no {abbr} and has been idle for {fmt_hours(idle)}"
                                   f" (last commit {fmt_hours(wt.get('commit_age_hours') or idle)} ago): orphan claim", wt["path"])
-        if (proj.get("milestone") and proj.get("prs_ok") and proj.get("issues_ok") and not proj.get("prs")
-                and not any(wt["kind"] == "issue" for wt in proj.get("worktrees", []))):
+        upstream = proj.get("merge_by") == "maintainer"  # our open PRs wait for the maintainer: no running chain
+        running = [wt for wt in proj.get("worktrees", []) if wt["kind"] == "issue" and not (upstream and wt.get("pr"))]
+        if proj.get("milestone") and proj.get("prs_ok") and proj.get("issues_ok") and (upstream or not proj.get("prs")) and not running:
             free = [i for i in proj.get("issues", [])
                     if i.get("checked", True) and not any(i["flags"].get(k) for k in ("pr", "blocked", "question", "in_progress"))]
             if free:
-                add("chain_ended", f"no open {abbr} and nothing in progress, but {len(free)} open unblocked issue(s), "
+                quiet = "nothing in progress" if upstream else f"no open {abbr} and nothing in progress"
+                add("chain_ended", f"{quiet}, but {len(free)} open unblocked issue(s), "
                                    f"next #{free[0]['number']} {free[0]['title']}", free[0].get("url", ""))
         found.sort(key=lambda item: KIND_ORDER.index(item["kind"]))
         items.extend(found)
@@ -460,6 +496,8 @@ class GitHub:
         return _chronological([_comment(c.get("body"), c.get("createdAt"), c.get("url")) for c in raw or []])
 
     def prs(self):
+        if self.p.merge_by == "maintainer":
+            return self.own_prs()
         data = run_json(["gh", "pr", "list", "-R", self.p.repo, "--state", "open", "--limit", "100", "--json",
                          "number,title,headRefName,isDraft,labels,url,body,comments,statusCheckRollup"])
         return [{"number": d["number"], "title": d["title"], "branch": d["headRefName"], "draft": bool(d["isDraft"]),
@@ -467,14 +505,36 @@ class GitHub:
                  "body": d.get("body") or "", "comments": self._comments(d.get("comments")),
                  "ci": summarize_checks(d.get("statusCheckRollup"))} for d in data]
 
+    def own_prs(self):
+        """MERGE_BY=maintainer: only our PRs; no comments (nobody posts markers), but the review decision,
+        mergeability and the authors of the commits, which tell whether the maintainer has taken one over."""
+        # 20, not 100: `commits` asks GitHub for up to 100 commits with up to 100 authors each per PR, and
+        # 100 PRs of that exceed GraphQL's 500,000-node limit; 20 open PRs of our own is plenty.
+        data = run_json(["gh", "pr", "list", "-R", self.p.repo, "--state", "open", "--author", "@me", "--limit", "20", "--json",
+                         "number,title,headRefName,isDraft,labels,url,body,statusCheckRollup,reviewDecision,mergeable,commits,author"])
+        return [{"number": d["number"], "title": d["title"], "branch": d["headRefName"], "draft": bool(d["isDraft"]),
+                 "labels": [label["name"] for label in d.get("labels") or []], "url": d.get("url", ""),
+                 "body": d.get("body") or "", "comments": [], "ci": summarize_checks(d.get("statusCheckRollup")),
+                 "author": (d.get("author") or {}).get("login", ""), "author_name": (d.get("author") or {}).get("name", ""),
+                 "review": d.get("reviewDecision") or "", "conflicts": d.get("mergeable") == "CONFLICTING",
+                 "commit_authors": [(a.get("login"), a.get("email"), a.get("name"))
+                                    for commit in d.get("commits") or [] for a in commit.get("authors") or []]} for d in data]
+
     def issues(self):
         cmd = ["gh", "issue", "list", "-R", self.p.repo, "--state", "open", "--limit", "100", "--json",
                "number,title,labels,url,comments"]
         if self.p.milestone:
             cmd += ["--milestone", self.p.milestone]
+        if self.p.merge_by == "maintainer":  # the owner's issues: assigned to the owner, or opened by the owner and not assigned
+            data = {}
+            for extra in (["--assignee", "@me"], ["--author", "@me", "--search", "no:assignee"]):
+                data.update({d["number"]: d for d in run_json(cmd + extra)})
+            data = [data[number] for number in sorted(data)]
+        else:
+            data = run_json(cmd)
         return [{"number": d["number"], "title": d["title"], "url": d.get("url", ""),
                  "labels": [label["name"] for label in d.get("labels") or []], "comments": self._comments(d.get("comments"))}
-                for d in run_json(cmd)]
+                for d in data]
 
 
 CI_QUERY = "query($path: ID!) { project(fullPath: $path) { mergeRequests(state: opened, first: 100) { nodes { iid headPipeline { status } } } } }"
@@ -506,22 +566,35 @@ class GitLab:
         return {int(n["iid"]): summarize_pipeline((n.get("headPipeline") or {}).get("status")) for n in nodes}
 
     def prs(self):
-        raw = self.api("merge_requests?state=opened&per_page=100")
+        own = self.p.merge_by == "maintainer"  # only our MRs; no notes, but commit authors and approval, fetched by complete_pr
+        raw = self.api("merge_requests?state=opened&per_page=100" + ("&scope=created_by_me" if own else ""))
         try:
             ci = self.ci_map()
         except ToolError:
             ci = {}  # complete_pr asks the single MR instead
-        return [{"number": d["iid"], "title": d["title"], "branch": d["source_branch"],
-                 "draft": bool(d.get("draft") or d.get("work_in_progress")), "labels": list(d.get("labels") or []),
-                 "url": d.get("web_url", ""), "body": d.get("description") or "",
-                 "comments": [] if not d.get("user_notes_count") else None, "ci": ci.get(d["iid"])} for d in raw]
+        found = [{"number": d["iid"], "title": d["title"], "branch": d["source_branch"],
+                  "draft": bool(d.get("draft") or d.get("work_in_progress")), "labels": list(d.get("labels") or []),
+                  "url": d.get("web_url", ""), "body": d.get("description") or "",
+                  "comments": [] if own or not d.get("user_notes_count") else None, "ci": ci.get(d["iid"])} for d in raw]
+        if own:
+            for pr, d in zip(found, raw):
+                pr.update({"author": (d.get("author") or {}).get("username", ""), "author_name": (d.get("author") or {}).get("name", ""),
+                           "conflicts": bool(d.get("has_conflicts")), "commit_authors": None, "review": None})
+        return found
 
     def issues(self):
         path = "issues?state=opened&per_page=100&order_by=created_at&sort=desc"
         if self.p.milestone:
             path += f"&milestone={quote(self.p.milestone, safe='')}"
+        if self.p.merge_by == "maintainer":  # the owner's issues: assigned to the owner, or opened by the owner and not assigned
+            data = {}
+            for extra in ("&scope=assigned_to_me", "&scope=created_by_me&assignee_id=None"):
+                data.update({d["iid"]: d for d in self.api(path + extra)})
+            raw = [data[number] for number in sorted(data)]
+        else:
+            raw = self.api(path)
         return [{"number": d["iid"], "title": d["title"], "url": d.get("web_url", ""), "labels": list(d.get("labels") or []),
-                 "comments": [] if not d.get("user_notes_count") else None} for d in self.api(path)]
+                 "comments": [] if not d.get("user_notes_count") else None} for d in raw]
 
     def complete_pr(self, pr):
         """Fetch what prs() left open (None): the notes and, without the GraphQL answer, the pipeline."""
@@ -535,6 +608,17 @@ class GitLab:
             try:
                 mr = self.api(f"merge_requests/{pr['number']}")
                 pr["ci"] = summarize_pipeline((mr.get("head_pipeline") or mr.get("pipeline") or {}).get("status"))
+            except ToolError as exc:
+                failure = failure or exc
+        if pr.get("commit_authors", []) is None:
+            try:
+                commits = self.api(f"merge_requests/{pr['number']}/commits?per_page=100")
+                pr["commit_authors"] = [(c.get("author_name"), c.get("author_email")) for c in commits]
+            except ToolError as exc:
+                failure = failure or exc
+        if pr.get("review", "") is None:
+            try:
+                pr["review"] = "APPROVED" if self.api(f"merge_requests/{pr['number']}/approvals").get("approved") else ""
             except ToolError as exc:
                 failure = failure or exc
         if failure:
@@ -554,6 +638,19 @@ def make_host(project):
         except ToolError:
             host = ""
     return GitLab(project, host)
+
+
+def git_identity(project) -> list:
+    """The name and e-mail git commits under in the project's checkout: what our own commits carry."""
+    found = []
+    if not project.repo_path or not os.path.isdir(project.repo_path):
+        return found
+    for key in ("user.name", "user.email"):
+        try:
+            found.append(run_cmd(["git", "-C", project.repo_path, "config", key]).strip())
+        except ToolError:
+            pass
+    return found
 
 
 def collect_worktrees(project, now):
@@ -607,6 +704,7 @@ def collect_locks(project, now, lock_dir, open_prs=None):
 def new_result(project):
     return {"name": project.name, "repo": project.repo, "host_cli": project.host_cli, "pr_abbr": project.pr_abbr,
             "main_branch": project.main_branch, "milestone": project.milestone or None, "lock_max_minutes": project.lock_max,
+            "merge_by": project.merge_by, "waiting": [],
             "errors": [], "notes": [], "prs": [], "issues": [], "worktrees": [], "locks": [],
             "prs_ok": False, "issues_ok": False}
 
@@ -674,7 +772,8 @@ def _collect(project, now, include_issues, lock_dir, res):
             res["notes"].append(f"comments fetched for {ISSUE_CAP} of {len(to_fetch)} issues that have some (capped)")
             to_fetch = to_fetch[:ISSUE_CAP]
 
-        pr_jobs = {pool.submit(host.complete_pr, pr): pr for pr in prs if pr["comments"] is None or pr["ci"] is None}
+        pr_jobs = {pool.submit(host.complete_pr, pr): pr for pr in prs
+                   if pr["comments"] is None or pr["ci"] is None or pr.get("commit_authors", []) is None or pr.get("review", "") is None}
         issue_jobs = {pool.submit(host.issue_comments, i["number"]): i for i in to_fetch}
         for job in concurrent.futures.as_completed(list(pr_jobs) + list(issue_jobs)):
             try:
@@ -685,14 +784,24 @@ def _collect(project, now, include_issues, lock_dir, res):
                 target = pr_jobs.get(job)
                 errors.append(f"{abbr} #{target['number']}: {exc}" if target else f"issue #{issue_jobs[job]['number']}: {exc}")
 
+    upstream = project.merge_by == "maintainer"
+    own = set(git_identity(project)) if upstream else set()
     for pr in prs:
         pr["ci"] = pr["ci"] or "unknown"
         found_comments = pr.pop("comments")
-        pr["marker"] = classify_pr_comments(found_comments) if found_comments is not None else None
-        pr["marker_label"] = marker_label(pr["marker"])
+        if upstream:  # our PR waits for the maintainer: no kit markers, but who else committed to it
+            pr["foreign_authors"] = foreign_authors(pr.pop("commit_authors", None) or [], own | {pr.get("author"), pr.get("author_name")})
+            pr["taken_over"] = bool(pr["foreign_authors"])
+            pr["review"] = pr.get("review") or ""
+            pr["marker"], pr["marker_label"] = None, waiting_label(pr)
+        else:
+            pr["marker"] = classify_pr_comments(found_comments) if found_comments is not None else None
+            pr["marker_label"] = marker_label(pr["marker"])
         pr["parked"] = "parked" in [label.lower() for label in pr["labels"]]
         pr["refs"] = issue_refs(pr["title"], pr.pop("body"), pr["branch"])
     res["prs"] = sorted(prs, key=lambda p: p["number"])
+    if upstream:
+        res["waiting"] = [pr["number"] for pr in res["prs"]]
 
     open_numbers = {pr["number"] for pr in prs}
     for wt in worktrees:
@@ -731,12 +840,19 @@ def render_text(results, items) -> str:
     for res in results:
         abbr = res["pr_abbr"]
         ms = res["milestone"] or "none"
-        out.append(f"== {res['name']}  ({res['repo'] or '?'}, {res['host_cli']}, {res['main_branch'] or '?'}, milestone: {ms})")
+        who = ", maintainer merges" if res["merge_by"] == "maintainer" else ""
+        out.append(f"== {res['name']}  ({res['repo'] or '?'}, {res['host_cli']}, {res['main_branch'] or '?'}, milestone: {ms}{who})")
         for error in res["errors"]:
             out.append(f"  ! {error}")
         for note in res["notes"]:
             out.append(f"  note: {note}")
-        if res["prs"]:
+        if res["prs"] and res["merge_by"] == "maintainer":
+            out.append(f"  Waiting for maintainer ({len(res['prs'])})")
+            for pr in res["prs"]:
+                flags = ("  DRAFT" if pr["draft"] else "") + ("  PARKED" if pr["parked"] else "")
+                who = f" ({', '.join(pr['foreign_authors'])})" if pr["taken_over"] else ""
+                out.append(f"    #{pr['number']:<5} {clip(pr['title'], 56):<56}  ci {pr['ci']:<7} {pr['marker_label']}{who}{flags}  [{pr['branch']}]")
+        elif res["prs"]:
             out.append(f"  {abbr}s ({len(res['prs'])})")
             for pr in res["prs"]:
                 flags = ("  DRAFT" if pr["draft"] else "") + ("  PARKED" if pr["parked"] else "")

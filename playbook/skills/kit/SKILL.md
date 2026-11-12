@@ -32,7 +32,10 @@ verbatim, never do the project work here.
 2. Report "Needs you" first, one line per item with its URL (blocked issues and open owner
    questions, PRs marked "Not merged" with the reason, parked PRs, stale locks, orphan worktrees,
    an ended chain). Then open PRs with CI state and review marker, the milestone's issues with
-   their flags, worktrees and locks. Omit empty sections.
+   their flags, worktrees and locks. Omit empty sections. A project with `MERGE_BY=maintainer`
+   (someone else merges; `merge_by` in the JSON) lists only our own PRs, as "Waiting for maintainer"
+   with CI state, review decision and "taken over by maintainer" where others committed to one, and
+   only the owner's issues: report those PRs as waiting, never as a running chain.
 3. If the user wants to know which sessions are running, call `list_sessions` and match titles
    starting with "Issue", "Maintainer" or names `issue-*`/`maint-*`; do not guess.
 4. End with the one or two commands that make sense next (e.g. `/kit next`, `/kit pr <N>` for a
@@ -55,16 +58,22 @@ verbatim, never do the project work here.
 5. Delete the scratch brief file. Reply in one or two lines: the session link
    (`[Issue #<N>](#<sessionId>)`), that it runs on its own, and that `/kit status` shows progress.
 
+The brief follows the project's `MERGE_BY`. With `maintainer` the session hands its PR over to the
+maintainer instead of merging it and posts no comment on the issue or the PR.
+
 ## `/kit next`
 
 1. Run `python3 KIT/playbook/session-briefs/kit-status.py --json` (plus `<project>` outside a checkout).
 2. If a chain is already running (an issue in progress without PR, or an open PR whose newest
    marker is neither "Not merged" nor "Merged"), say so with the number and stop: one chain per
-   project unless the user asks for a parallel one.
+   project unless the user asks for a parallel one. With `MERGE_BY=maintainer` only an issue in
+   progress without PR is a running chain: our open PRs wait for the maintainer.
 3. Pick the first open issue that has no PR, is not blocked, has no open owner question and is
    not in progress: in the order of `docs/roadmap.md` of the checkout when the project file names
    a milestone (read only the roadmap lines that list that milestone's issues), else by issue
    number. If none qualifies, say what blocks the candidates (owner questions, PRs) and stop.
+   With `MERGE_BY=maintainer` the issue list is already limited to issues assigned to the owner,
+   or opened by the owner without an assignee; never pick another person's issue.
 4. Continue as `/kit issue <N>` with the milestone from the project file.
 
 ## `/kit pr <N>`
@@ -74,7 +83,11 @@ Same as `/kit issue`, with `fill-brief.py maintainer <N>`, `name: maint-<N>`, ti
 (`gh pr view <N> --json body` / `glab mr view <N>`: `Closes #` or `Refs #`; without one, use
 "<project>: review PR <N>"), and background "Maintainer session for
 <project> PR <N>, started with /kit for a PR no session works on any more." Start it only for a PR
-that carries a "Not merged" comment, has no live session, or that the user names explicitly.
+that carries a "Not merged" comment, has no live session, or that the user names explicitly. With
+`MERGE_BY=maintainer` the brief is the one-round PR session (fixes, merges `origin/<main>` into the
+branch, pushes once, never merges, posts nothing): start it for a PR under "Waiting for maintainer"
+with red CI, conflicts or review comments to answer, and never for one marked "taken over by
+maintainer": say that it is hands off instead.
 
 ## `/kit bug <description>` and `/kit feat <description>`
 
@@ -116,7 +129,9 @@ into the file, and run `fill-brief.py check`.
 
 ## Rules
 
-- This chat starts sessions and drafts issues; it never implements, reviews or merges.
+- This chat starts sessions and drafts issues; it never implements, reviews or merges. With
+  `MERGE_BY=maintainer` no session merges either, and none comments on the maintainer's issues
+  or PRs.
 - An issue is created only after the owner has seen the full draft and said yes.
 - One chain per project at a time unless the user asks for a parallel chain (`--handover "after PR"`).
 - Never start a maintainer session for a PR whose issue session is still running.
