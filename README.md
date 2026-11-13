@@ -11,8 +11,9 @@ with Codex, on GitHub or GitLab.
 - **Rules for the agents in your repo.** A working contract (`AGENTS.md`), design rules, a docs
   skeleton, issue and pull request templates, CI, a protected main branch.
 - **One issue, one session.** Every issue is worked by its own agent session, from claiming it to
-  the merge. A fresh agent reviews the change. Findings are fixed in rounds; what does not fit
-  becomes a follow-up issue.
+  the merge. A fresh agent reviews the change. Findings are fixed in rounds; what does not fit is
+  recorded as a line on a bundle, an open issue or an inbox, and a triage run turns the recorded
+  lines into issues.
 - **Acceptance from the user's side.** Every issue says what a user does and sees afterwards. An
   agent that never sees the code tries exactly that before the merge. Per milestone, you accept.
 - **A chain that keeps going.** When a session has opened its pull request, it starts the session
@@ -21,8 +22,8 @@ with Codex, on GitHub or GitLab.
   session hands its pull request over to the maintainer instead of merging it, posts no comment on
   their issues or pull requests, and stops when the maintainer pushes to it.
 - **`/kit` in Claude Code, `$kit` in Codex.** `/kit status` shows what is running and what waits for
-  you. `/kit next` starts the next issue. `/kit bug <text>` turns a sentence into an issue and starts
-  its session. The sessions themselves run as Claude Code sessions or as Codex threads.
+  you. `/kit next` starts the next issue by tier. `/kit bug <text>` turns a sentence into an issue and
+  starts its session. `/kit triage` empties the inbox of recorded findings. The sessions themselves run as Claude Code sessions or as Codex threads.
 
 ## What you do
 
@@ -67,6 +68,7 @@ agent does.
    `$rpa-init`, `$rpa-gen-rules`). Fill the remaining `{{PLACEHOLDERS}}` in `AGENTS.md` and
    `DESIGN.md` with your project's facts.
 4. Turn your backlog into milestones and issues, using the issue template that is now in your repo.
+   Give each issue a tier label and create the labels and the inbox issue once (onboarding, step 8).
 5. Link the `/kit` skill and start the first session. Claude Code:
    ```bash
    ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit

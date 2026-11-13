@@ -83,10 +83,23 @@ The brief is below. Two lessons from the pilot are already built into it:
 ### What it delivers
 
 A short report in the session's scratchpad, never in the repository: for each journey **passed**,
-**failed** or **not checkable**, then the findings with step, expectation, observation, screenshot
-and severity (**blocking**, **wrong**, **tedious**, **cosmetic**), and what it could not check. The
-session that started it reconciles the findings with code and logs before it turns them into a round
-of fixes or issues. At most two runs per PR; a repeat run checks only the changed steps.
+**failed** or **not checkable**, then the findings with step, expectation, observation, screenshot,
+severity (**blocking**, **wrong**, **tedious**, **cosmetic**) and a class guess (a kind of defect
+that one mechanism fixes at many places, such as a wrong spelling or a table cut off on a phone, or
+`?`), and what it could not check. The agent keeps reporting everything it sees; it files nothing
+and does not decide where a finding goes. The session that started it reconciles the findings with
+code and logs, confirms them and records each confirmed one once (see "Recording the findings").
+At most two runs per PR; a repeat run checks only the changed steps.
+
+### Recording the findings
+
+A confirmed finding is recorded, not filed: one comment line on the open bundle of its class, on
+the open issue that already covers it, or on the project's inbox issue; a new issue at once only
+for a blocker category, security, data loss or a core-journey step a user cannot finish, and at
+most one other new issue per PR. The line format, the search before it and the cap are the section
+"Findings" of the [issue session](session-briefs/issue-session.md); the
+[triage session](session-briefs/triage-session.md) later turns the recorded lines into issues and
+bundles. A finding the session cannot confirm is refuted with the reason in the PR comment only.
 
 ## The bridge to the E2E tests
 
@@ -100,10 +113,10 @@ wrote into them. Both together close the circle:
    from the journey the owner approved, never from the code; the fresh review checks that before the
    merge. Date-dependent journeys set a fixed reference date in the twin so that it stays
    deterministic.
-2. **Every confirmed finding first becomes a red step.** The issue for a finding of the acceptance
-   agent requires that the finding fails, before the fix, as a step in the journey's twin (or as a
-   new scenario there). That way the agent has to find a defect only once; after that CI holds it,
-   and the next run reports only what is new.
+2. **Every confirmed defect first becomes a red step when it is fixed.** The issue that fixes a
+   finding of the acceptance agent requires that the finding fails, before the fix, as a step in the
+   journey's twin (or as a new scenario there). That way the agent has to find a defect only once;
+   after that CI holds it, and the next run reports only what is new.
 
 The twins do not replace the blind run: they walk a path that someone has fixed. Whether a user finds
 the way on their own is checked only by the blind run. They come into being with the fixes, not in
@@ -122,8 +135,9 @@ most half an hour for it:
 2. the user checks with `owner` that have been open since the last milestone;
 3. one or two spot checks that the owner clicks through personally.
 
-These verdicts and the owner's feedback become issues (defect, usability) or corrections of the
-journeys (intended). The share of false alarms is the measure of whether the acceptance agent is any
+These verdicts and the owner's feedback are recorded like any finding (defect and usability
+problems as lines on a bundle, an open issue or the inbox, the triage session files what needs
+filing) or become corrections of the journeys (intended). The share of false alarms is the measure of whether the acceptance agent is any
 good: if it rises above a third, the brief or the journeys are sharpened before building further on
 it.
 
@@ -161,8 +175,9 @@ How you proceed:
 6. Invent nothing. If you are unsure, write "unsure" and why.
 
 You deliver <FOLDER>/report.md: for each journey passed, failed or not checkable with one sentence;
-the findings with journey, intent, observation, expectation, screenshot and severity (blocking,
-wrong, tedious, cosmetic); what you could not check; three sentences on whether you would keep using
+the findings with journey, intent, observation, expectation, screenshot, severity (blocking,
+wrong, tedious, cosmetic) and a class guess (a kind of defect that one mechanism fixes at many
+places, or "?"); everything you see, nothing left out; what you could not check; three sentences on whether you would keep using
 the product. You write to no repository, open no issues and send no messages. You do not start, stop
 or change anything about the app, containers or processes.
 

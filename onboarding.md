@@ -117,7 +117,8 @@ becomes an issue in the spec format of the template (`.gitlab/issue_templates/De
 `main` with file:line), Proposed change (smallest change, reuse, files named), Acceptance
 (checkboxes, each one verifiable), Out of scope (where it belongs instead). What only the owner
 can decide goes in "Open decisions" of the roadmap and as an issue comment, never as a silent
-assumption.
+assumption. Every issue gets a tier label (step 8): the issue sessions pick the next issue by tier,
+and an issue without one is never picked.
 
 Commands for GitLab are in [kit/gitlab/cli.md](kit/gitlab/cli.md) (`glab milestone create`,
 `glab issue create --description-file … --label task --milestone …`); for GitHub the
@@ -138,8 +139,9 @@ via `/tmp/<project>-acceptance.lock`.
 For an **existing project**, a first run of the blind acceptance agent over all journeys on the
 main branch follows immediately ([playbook/acceptance.md](playbook/acceptance.md)). It shows what
 does not work for a user today, before new work is added. The owner sorts the findings (Defect,
-Usability, False alarm, As intended); the defects and usability problems become issues in the spec
-format with a user check, and they come in the roadmap before new capabilities. A project that only
+Usability, False alarm, As intended); the defects and usability problems are recorded as the briefs
+prescribe (step 8): defects of one class together as one bundle issue in the spec format with a user
+check, the rest as issues, and they come in the roadmap before new capabilities. A project that only
 agents have checked in particular is green at issue level and still unusable for a user; this run
 is the honest starting point. The automated twins of the journeys (`features/journeys/`)
 come into being with these issues: every finding fails as a step in the twin before its fix.
@@ -172,7 +174,46 @@ direct pushes are thereby off, admins are included, force-push and deletion are 
 job and the release workflow react to tags `vX.Y.Z`, which must lie on the main branch, and push
 the image to the host's registry.
 
-## 8 Start the session chain
+## 8 Findings intake (once per project)
+
+Sessions do not file an issue per finding of a review or an acceptance run: they record it as one
+comment line on the open bundle of its class, on the open issue that covers it, or on a standing
+inbox issue, and a triage run later turns the lines into issues
+([workflow.md](playbook/workflow.md), "Findings: record first, triage later"). The briefs refuse
+to fill until the project has these four things. Skip the step for a repository whose maintainer
+merges (`MERGE_BY=maintainer`): its sessions post nothing on the tracker.
+
+1. **Labels.** The default names are `bundle`, `inbox`, `tier:1` (launch blocker), `tier:2` (before
+   launch) and `tier:3` (after launch). GitHub:
+   ```bash
+   gh label create bundle --description "One open issue per class of defect" --color 5319E7
+   gh label create inbox --description "Standing issue for recorded findings" --color BFD4F2
+   gh label create tier:1 --description "Launch blocker" --color B60205
+   gh label create tier:2 --description "Before launch" --color D93F0B
+   gh label create tier:3 --description "After launch" --color FBCA04
+   ```
+   GitLab: `glab label create --name bundle --description "…" --color "#5319E7"` and so on
+   ([kit/gitlab/cli.md](kit/gitlab/cli.md)). Other names go into the project file as
+   `BUNDLE_LABEL`, `INBOX_LABEL`, `TIER_1_LABEL`, `TIER_2_LABEL`, `TIER_3_LABEL`.
+2. **The inbox issue.** One issue with the label `inbox`; sessions only add comment lines to it, the
+   triage run ticks them, nobody closes it. Note its number.
+   ```bash
+   gh issue create --title "Findings inbox" --label inbox --body "Standing issue. Sessions record findings here as comment lines (- [ ] class | place | what was seen | SHA | PR). The triage run (/kit triage) gives each line a disposition. Do not close."
+   ```
+3. **Tiers.** Give every open issue one tier label (`gh issue edit N --add-label tier:2`; GitLab
+   `glab issue update N --label tier:2`). The tier is the work order: tier 1 before tier 2 before
+   tier 3, inside a tier the roadmap order, then the issue number. An issue without a tier label,
+   and the inbox, are never picked; `/kit status` shows how many open issues have none. Bundles
+   are ordinary work items.
+4. **The key.** Add one line to the project file `~/.config/project-kit/briefs/<project>.env`:
+   `INBOX_ISSUE=<number>` (the number only, no `#`). The labels need no keys while they carry the
+   default names. `fill-brief.py check <project>` then reports the file as complete; for a new
+   project `fill-brief.py init` writes the line as a TODO.
+
+`/kit triage` starts the triage run ([playbook/session-briefs/triage-session.md](playbook/session-briefs/triage-session.md))
+when the inbox holds 15 or more open lines, five PRs were merged since the last run, or you want it.
+
+## 9 Start the session chain
 
 Every issue gets its own session with empty context, which takes it from claiming it to the merge
 (to the handover to the maintainer, where the project file says `MERGE_BY=maintainer`: see below);
@@ -186,7 +227,8 @@ session, one task"). Start with `after merge`; switch to `after PR` once the cha
 The simplest way is the `/kit` skill, used in a chat that runs in the project's main checkout:
 link it once with `ln -s <KIT_PATH>/playbook/skills/kit ~/.claude/skills/kit`, register the project
 with `/kit init` and complete the TODO values it names, then `/kit next` starts the next unblocked
-issue as a detached session, `/kit pr <N>` a maintainer session, `/kit bug <text>` or
+issue by tier as a detached session, `/kit pr <N>` a maintainer session, `/kit triage` a triage
+session for the inbox, `/kit bug <text>` or
 `/kit feat <text>` drafts an issue from a sentence and starts it after your OK, and `/kit status`
 shows the project's PRs, issues, worktrees and locks and what needs you. Outside a checkout the commands take
 the project name, and `/kit status` covers all registered projects.
@@ -213,6 +255,9 @@ of delegating to `codex-task`, and a finished task is not archived automatically
    or it comes from outside the kit. It brings it to completion and starts no successor
    session. For a member of a stack whose session ended before the base was merged, the base's
    session starts it itself after its merge.
+3. The [triage session](playbook/session-briefs/triage-session.md) for the inbox issue, with
+   `playbook/session-briefs/fill-brief.py triage <repo-path> --copy`: it records a disposition next
+   to every open line, creates bundles and issues with a tier and changes no code.
 
 For a repository whose PRs someone else merges (an upstream project), set `MERGE_BY=maintainer` in
 the project file (`session` is the default). The briefs then hold their maintainer-mode blocks:
@@ -221,7 +266,7 @@ instead of merging it (no merge lock, no `pr merge`), merges `origin/<main>` int
 rebases or force-pushes, stops at once when anyone else pushes to or reworks the PR, and picks
 successor issues only from the owner's own (assigned to the owner, or opened by the owner without an
 assignee). The maintainer session then serves our open PR for one round and never merges. `MERGE_METHOD`
-may stay `TODO` (no maintainer-mode text reads it); `LOCK_MAX` is still needed for the acceptance lock.
+and `INBOX_ISSUE` may stay `TODO` (no maintainer-mode text reads them); `LOCK_MAX` is still needed for the acceptance lock.
 `playbook/session-briefs/kit-status.py` lists such PRs as "Waiting for maintainer".
 
 In the Claude desktop app a session starts its successor session with `start_session` (fresh

@@ -16,7 +16,7 @@ The kit has three layers. Only the second is copied into your repository.
 | --- | --- | --- |
 | 1 Global tooling | On your machine; policy and agents ship in [kit/global/](kit/global/) | The skills `/rpa-init` and `/rpa-gen-rules` (both hosts); with Claude Code the orchestration policy in `~/.claude/CLAUDE.md` and the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`; with Codex its own orchestration; in a mixed setup the Codex wrapper `codex-task` |
 | 2 Files in the repo | [kit/](kit/) | Working contract `AGENTS.md` with a `CLAUDE.md` symlink, `DESIGN.md`, docs skeleton with a template for the core journeys, `SECURITY.md`, `CONTRIBUTING.md`, Makefile with `docs-check` and a rule test, Codex hook, Gherkin guide; per host an issue template, a PR/MR template, CI and a script that protects the main branch |
-| 3 Process | [playbook/](playbook/) | The workflow, the roles, acceptance from the user's side, Codex briefs, the two session prompts and the `/kit` skill that starts and oversees sessions |
+| 3 Process | [playbook/](playbook/) | The workflow, the roles, acceptance from the user's side, Codex briefs, the three session prompts and the `/kit` skill that starts and oversees sessions |
 
 The kit is not a dependency of the projects it serves. Clone it once, run `install-global.sh` once
 per machine for the policy and the agents of layer 1, and `bootstrap.sh` copies layer 2 into each
@@ -28,8 +28,10 @@ A change follows this path. The owner keeps a roadmap with milestones. Each back
 issue in a spec format, with a user check that says what a user does and sees. One session per
 issue takes it from claiming to merge. It works in its own worktree, writes tests red first and
 opens the PR (GitLab: MR). A fresh `verifier` agent reviews it, and the session fixes the findings
-in rounds. After the third review the scope is frozen, and findings outside it become follow-up
-issues. As soon as its PR is open, or after its merge, the session starts a successor session for
+in rounds. After the third review the scope is frozen, and findings outside it are recorded: a
+line on the open bundle of their class, on the open issue that covers them, or on the project's
+inbox issue, which a triage session later turns into issues (a blocker-category finding or a core
+journey step a user cannot finish is filed at once). As soon as its PR is open, or after its merge, the session starts a successor session for
 the next unblocked issue. Before the merge of a PR with a user check, a blind acceptance agent
 without code access tries the user check. Per milestone it runs over all core journeys, and the
 owner accepts the result. A maintainer session exists only for PRs that no session works on
@@ -47,7 +49,7 @@ applies and nothing changes.
 
 Details: [workflow.md](playbook/workflow.md) (the path of a change), [roles.md](playbook/roles.md)
 (owner, orchestrator, Codex, subagents), [acceptance.md](playbook/acceptance.md) (user check and
-acceptance), [session-briefs/](playbook/session-briefs/) (the two session prompts).
+acceptance), [session-briefs/](playbook/session-briefs/) (the three session prompts).
 
 ## Requirements
 
@@ -130,7 +132,9 @@ If you use other tooling for these pieces, provide equivalents before you start 
    Or use the skill: `ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit`.
    In a chat that runs in the project checkout, `/kit init` does the same as `fill-brief.py init`.
    `/kit next` then starts the next unblocked issue, and `/kit status` shows what needs the owner.
-   `/kit issue <N>`, `/kit pr <N>`, `/kit bug <text>` and `/kit feat <text>` start other sessions.
+   `/kit issue <N>`, `/kit pr <N>`, `/kit bug <text>`, `/kit feat <text>` and `/kit triage` start other
+   sessions. Before the first session, set up the findings intake once per project: the labels, the
+   inbox issue and `INBOX_ISSUE` in the project file ([onboarding.md](onboarding.md), step 8).
 
 Each session merges its own PR (with `MERGE_BY=maintainer`: hands it over) and starts its successor.
 All sessions of a project run on one machine, because the merge lock and the worktree claims live
@@ -150,7 +154,8 @@ playbook/
   roles.md                owner, orchestrator, Codex worker, subagents, acceptance agent
   acceptance.md           user check, blind acceptance agent, owner's acceptance
   codex-briefs.md         what a Codex brief contains and why runs fail
-  session-briefs/         issue-session.md, maintainer-session.md, fill-brief.py, kit-status.py
+  session-briefs/         issue-session.md, maintainer-session.md, triage-session.md, fill-brief.py,
+                          kit-status.py
   skills/kit/             the /kit skill for Claude Code
   skills/kit-codex/       supplement that runs the same commands as $kit in Codex
 kit/global/               global layer: agents/ (scout, builder, verifier, architect), orchestration-policy.md
@@ -182,8 +187,25 @@ Kit files carry two kinds of placeholders.
 | Project | `{{PROJECT_NAME}}`, `{{PROJECT_ONE_LINER}}`, `{{REPO}}`, `{{OWNER}}`, `{{STACK}}`, `{{LICENSE}}`, `{{SOFTWARE_LANGUAGE}}`, `{{TEST_CMD}}`, `{{LINT_CMD}}`, `{{TEST_DB}}`, `{{SUITE_DURATION}}`, `{{LOCK_RULE}}`, `{{UI_EVIDENCE}}`, `{{ACCEPTANCE_ENV}}`, `{{PRODUCTION_TABOOS}}`, `{{BLOCKER_CATEGORIES}}`, `{{CI_IMAGE}}`, `{{DEPLOY_TARGET}}`, `{{PERSONA}}`, `{{SAMPLE_DATA}}`, `{{JOURNEY_TITLE}}` | The onboarding session, from the `/rpa-init` report and the owner |
 
 `{{BLOCKER_CATEGORIES}}` names the finding categories that are still fixed after the scope
-freeze. `{{LOCK_RULE}}`, `{{SUITE_DURATION}}`, `{{UI_EVIDENCE}}` and `{{BLOCKER_CATEGORIES}}` also
-appear in the session briefs.
+freeze and that a triage run never dismisses. `{{LOCK_RULE}}`, `{{SUITE_DURATION}}`, `{{UI_EVIDENCE}}`
+and `{{BLOCKER_CATEGORIES}}` also appear in the session briefs.
+
+### Keys for the findings intake
+
+The session briefs also read these keys from the project file
+`~/.config/project-kit/briefs/<project>.env`, not from the repository. `fill-brief.py init` writes
+the defaults, and a project file that does not name a key with a default gets the default.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `INBOX_ISSUE` | none, must be set | Number of the project's one standing inbox issue, without `#`. Needed by all three briefs, except with `MERGE_BY=maintainer`, where nothing is recorded on the tracker |
+| `INBOX_LABEL` | `inbox` | Label of the inbox issue |
+| `BUNDLE_LABEL` | `bundle` | Label of the bundle issues, one open issue per class of defect |
+| `TIER_1_LABEL`, `TIER_2_LABEL`, `TIER_3_LABEL` | `tier:1`, `tier:2`, `tier:3` | The work order: launch blocker, before launch, after launch. The next issue is picked by tier; an issue without one of these labels, and the inbox, are never picked |
+
+The one-time setup (create the labels and the inbox issue, set `INBOX_ISSUE`) is step 8 of
+[onboarding.md](onboarding.md). `kit-status.py` shows `not set up` where the inbox or the labels
+do not exist yet.
 
 Run this in the target repository to list what is still open:
 
@@ -228,8 +250,9 @@ result it runs the link checker and the rule test. `tests/test_install_global.sh
 `install-global.sh` against temporary home directories. It checks a fresh install, that a second run
 changes nothing, that an existing agent file or `CLAUDE.md` content is kept, that `--dry-run`
 creates nothing and bad arguments. It never touches your real `~/.claude`.
-`tests/test_fill_brief.py` covers `fill-brief.py`.
-`tests/test_kit_status.py` covers `kit-status.py` offline, with fake `gh` and `glab`. ShellCheck
+`tests/test_fill_brief.py` covers `fill-brief.py`, including the triage brief and the intake keys.
+`tests/test_kit_status.py` covers `kit-status.py` offline, with fake `gh` and `glab`, including the
+intake numbers. ShellCheck
 then runs over the shell scripts, directly if installed or through Docker, else it is skipped.
 
 ```bash

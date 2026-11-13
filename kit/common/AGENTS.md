@@ -51,18 +51,27 @@ enforcement; every baseline and safety rule here stays in force. <!-- proven -->
   `Closes #N` only when every acceptance box is done; otherwise `Refs #N` plus what remains. <!-- proven -->
 - Red first: the scenario and the unit tests fail without the change, then the smallest change
   turns them green, then refactor with the tests still green. <!-- proven -->
-- A finding outside the scope becomes a new issue, not extra code: the session that found it creates
-  the issue right away from `{{HOST_ISSUE_TEMPLATE}}`, one issue per mechanism, with a line
-  "Follow-up from {{HOST_PR_ABBR}} #M (issue #N)", after checking that no open issue covers it; the
-  {{HOST_PR_ABBR}} description lists the number. A sentence in the {{HOST_PR_ABBR}} without an issue is not enough. <!-- proven -->
+- A finding outside the scope is recorded, never extra code and not an issue per finding: after
+  searching the open issues, one comment line `- [ ] <class or ?> | <screen or file:line> | <what was seen> | <SHA> | {{HOST_PR_ABBR}} #M`
+  goes on the open bundle of its class (label `bundle`: one open issue per class of defect), on the
+  open issue that already covers it, or on the inbox issue (label `inbox`: one standing issue); a
+  triage run later turns the lines into issues. Only a finding in a blocker category (below, plus
+  security and data loss) or a step of a core journey that a user cannot finish becomes a new issue
+  at once, from `{{HOST_ISSUE_TEMPLATE}}`; outside that a session files at most one new issue per
+  {{HOST_PR_ABBR}}, for a self-contained defect on the {{HOST_PR_ABBR}}'s own journey that has no class.
+  A sentence in the {{HOST_PR_ABBR}} description is not a record. Before asking the owner a question,
+  check the decisions already recorded (comments headed "Owner decision"). <!-- proven -->
+- Work is picked by tier, not by issue number: labels `tier:1` (launch blocker), `tier:2` (before
+  launch), `tier:3` (after launch), inside a tier the roadmap order. The inbox and an issue without
+  a tier are never picked; bundles are ordinary work items. <!-- proven -->
 - Cut before coding: an issue that touches more than one domain mechanism (for example a
   data model plus its validation rules plus an import) is split into issues of one mechanism each,
   one {{HOST_PR_ABBR}} per issue, before the first branch exists. <!-- proven -->
 - Three rounds, then freeze: a round is a fresh review of the open {{HOST_PR_ABBR}} plus the push that
   fixes its findings; the implementer's own verifier pass before the {{HOST_PR_ABBR}} does not count.
   After the third review the scope is frozen: only findings in the blocker categories ({{BLOCKER_CATEGORIES}}), red CI, a failed
-  user check and conflicts are still fixed; every other finding becomes a follow-up issue with a
-  user check, not another round. At most five rounds: a finding that still needs a push after the
+  user check and conflicts are still fixed; every other finding is recorded as above, not
+  another round. At most five rounds: a finding that still needs a push after the
   fifth means no merge. Blind acceptance runs: at most two per {{HOST_PR_ABBR}}; a repeat checks only
   the changed steps. <!-- proven -->
 - A session pushes only its own {{HOST_PR_ABBR}} branch and merges only the {{HOST_PR_ABBR}} it works on: after

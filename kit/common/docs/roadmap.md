@@ -8,7 +8,8 @@ What exists today: [feature-status.md](feature-status.md).
 - Every piece of work is a {{HOST}} issue written as a spec (`{{HOST_ISSUE_TEMPLATE}}`):
   What → Why → Proposed change → User check → Acceptance → Out of scope. One issue, one branch, one
   {{HOST_PR_ABBR}}; `Closes #N` only when every acceptance box is done, otherwise `Refs #N`.
-- Order comes from milestones (below) and, inside a milestone, from the list order here.
+- Order comes from milestones (below), inside a milestone from the tier label of the issue (`tier:1` before
+  `tier:2` before `tier:3`), and inside a tier from the list order here.
 - Read one issue with `{{HOST_ISSUE_VIEW}}`.
 
 ## Milestones

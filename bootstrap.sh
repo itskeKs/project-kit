@@ -234,6 +234,7 @@ printf '%s\n' \
     '3. Run /rpa-gen-rules to generate paired .claude/rules/*.md and .cursor/rules/*.mdc (the Codex hook attaches them), then run make test-agent-rules.' \
     "4. Fill the {{PROJECT_*}}, {{REPO}}, {{OWNER}} and other project tokens; list them with: grep -rn '{{' --exclude-dir=.git ."
 printf '5. Convert the backlog into milestones and issues using %s.\n' "$host_issue_template"
+printf '%s\n' '   Then set up the findings intake once: labels bundle, inbox, tier:1..tier:3, the inbox issue and INBOX_ISSUE in the project file (onboarding.md, step 8).'
 protect_branch=''
 [[ "$default_branch" == main ]] || protect_branch=$(printf ' --branch %q' "$default_branch")
 printf '6. Once CI has run, run %s/kit/%s/protect.sh%s.\n' "$KIT_DIR" "$host" "$protect_branch"
