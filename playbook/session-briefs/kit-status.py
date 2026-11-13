@@ -4,8 +4,10 @@
 Reads the per-project files outside the repository (~/.config/project-kit/briefs/*.env, or
 $PROJECT_KIT_CONFIG/briefs/*.env, the same files fill-brief.py uses) and, read-only, asks gh / glab
 and git what is going on: open PRs/MRs with CI state and the latest kit marker from their comments,
-open issues with their flags, the worktrees `<repo>-issue-N` / `<repo>-review-N`, and the merge and
-acceptance locks in /tmp. A final section "Needs you" collects what only the owner can resolve.
+open issues with their flags, the findings intake (issues created and closed in the last seven days,
+open lines on the inbox issue, open bundles, open items per tier), the worktrees `<repo>-issue-N` /
+`<repo>-review-N`, and the merge, acceptance and triage locks in /tmp. A final section "Needs you"
+collects what only the owner can resolve.
 
     kit-status.py [project ...] [--json] [--no-issues]
 
@@ -15,6 +17,10 @@ stop the run. Optional keys in a project file: GITLAB_HOST (otherwise taken from
 origin remote), MERGE_BY (`session`, the default, or `maintainer`: someone else merges, so only our own
 open PRs are listed, as "Waiting for maintainer" with CI, review decision and whether others committed
 to them, and only the owner's issues: assigned to the owner, or opened by the owner without an assignee).
+Intake keys of a project file: INBOX_ISSUE (the inbox issue's number; the open lines are the unticked
+`- [ ]` lines in its comments), INBOX_LABEL, BUNDLE_LABEL, TIER_1_LABEL, TIER_2_LABEL, TIER_3_LABEL (defaults
+inbox, bundle, tier:1, tier:2, tier:3). What a project does not have yet shows as "not set up": no
+INBOX_ISSUE, or labels that do not exist on the host. A project whose maintainer merges has no intake.
 $PROJECT_KIT_LOCK_DIR replaces /tmp as the place of the lock directories.
 
 Nothing here writes to a host, a repository or a lock.
@@ -32,7 +38,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import quote
@@ -43,6 +49,9 @@ REMNANT_MINUTES = 30  # a lock naming a PR that is no longer open is a remnant a
 DEFAULT_LOCK_MAX = 120
 CALL_TIMEOUT = 45  # seconds per gh / glab / git call
 WORKTREE_RE = re.compile(r"-(issue|review)-(\d+)$")
+INTAKE_DAYS = 7  # the window of "issues created and closed"
+DEFAULT_TIERS = ("tier:1", "tier:2", "tier:3")  # launch blocker, before launch, after launch
+OPEN_LINE = re.compile(r"^[ \t]*[-*][ \t]+\[ \](?:[ \t]|$)", re.M)  # an unticked line of the inbox: "- [ ] ..."
 
 # ---------------------------------------------------------------------------------------------
 # Pure helpers: parsing and classification (these are what tests/test_kit_status.py exercises)
@@ -89,6 +98,10 @@ class Project(NamedTuple):
     lock_max: int
     gitlab_host: str
     merge_by: str = "session"  # "maintainer": someone else merges our PRs
+    inbox_issue: str = ""  # number of the inbox issue; "" when the project has none yet
+    inbox_label: str = "inbox"
+    bundle_label: str = "bundle"
+    tier_labels: tuple = DEFAULT_TIERS
 
 
 def project_from_env(env: dict, stem: str) -> Project:
@@ -110,6 +123,10 @@ def project_from_env(env: dict, stem: str) -> Project:
         lock_max=parse_lock_max(env.get("LOCK_MAX")),
         gitlab_host=value("GITLAB_HOST"),
         merge_by="maintainer" if value("MERGE_BY").lower() == "maintainer" else "session",
+        inbox_issue=value("INBOX_ISSUE") if value("INBOX_ISSUE").isdigit() else "",
+        inbox_label=value("INBOX_LABEL") or "inbox",
+        bundle_label=value("BUNDLE_LABEL") or "bundle",
+        tier_labels=tuple(value(f"TIER_{n}_LABEL") or DEFAULT_TIERS[n - 1] for n in (1, 2, 3)),
     )
 
 
@@ -251,6 +268,33 @@ def issue_refs(title: str, body: str, branch: str) -> list:
     refs = {int(n) for n in re.findall(r"(?<![\w&/])#(\d+)\b", f"{title}\n{body or ''}")}
     refs |= {int(n) for n in re.findall(r"(?:^|[/_-])issue[-_/]?(\d+)(?![\d])", branch or "")}
     return sorted(refs)
+
+
+def count_open_lines(comments) -> int:
+    """Open lines on the inbox: the unticked `- [ ]` lines in the comments (a ticked `- [x]` line is handled)."""
+    return sum(len(OPEN_LINE.findall(_body(comment))) for comment in comments or [])
+
+
+def tier_of(labels, tier_labels):
+    """Index (0 = most urgent) of the most urgent tier label among `labels`, or None when there is none."""
+    ranks = [tier_labels.index(name) for name in labels or [] if name in tier_labels]
+    return min(ranks) if ranks else None
+
+
+def intake_counts(issues, project) -> dict:
+    """Open bundles and open items per tier over all open issues of the project (`issues`: dicts with
+    'labels'). The inbox issue is no work item. An issue with several tier labels counts under the most
+    urgent; `none` counts the work items without any."""
+    tiers = {label: 0 for label in project.tier_labels}
+    tiers["none"] = bundles = 0
+    for found in issues:
+        labels = found.get("labels") or []
+        if project.inbox_label in labels:
+            continue
+        bundles += project.bundle_label in labels
+        rank = tier_of(labels, project.tier_labels)
+        tiers["none" if rank is None else project.tier_labels[rank]] += 1
+    return {"bundles": bundles, "tiers": tiers}
 
 
 def summarize_checks(entries) -> str:
@@ -431,10 +475,21 @@ def needs_you(projects) -> list:
         if proj.get("milestone") and proj.get("prs_ok") and proj.get("issues_ok") and (upstream or not proj.get("prs")) and not running:
             free = [i for i in proj.get("issues", [])
                     if i.get("checked", True) and not any(i["flags"].get(k) for k in ("pr", "blocked", "question", "in_progress"))]
+            untiered = []
+            if not upstream:  # the next issue is picked by tier; the inbox and an issue without a tier are never picked
+                tiers = tuple(proj.get("tier_labels") or DEFAULT_TIERS)
+                free = [i for i in free if proj.get("inbox_label", "inbox") not in (i.get("labels") or [])]
+                untiered = [i for i in free if tier_of(i.get("labels"), tiers) is None]
+                free = sorted((i for i in free if tier_of(i.get("labels"), tiers) is not None),
+                              key=lambda i: (tier_of(i.get("labels"), tiers), i["number"]))
+            quiet = "nothing in progress" if upstream else f"no open {abbr} and nothing in progress"
             if free:
-                quiet = "nothing in progress" if upstream else f"no open {abbr} and nothing in progress"
                 add("chain_ended", f"{quiet}, but {len(free)} open unblocked issue(s), "
                                    f"next #{free[0]['number']} {free[0]['title']}", free[0].get("url", ""))
+            elif untiered:
+                add("chain_ended", f"{quiet}, but {len(untiered)} open unblocked issue(s) without a tier label, "
+                                   f"which are never picked: tier them (first #{untiered[0]['number']} {untiered[0]['title']})",
+                    untiered[0].get("url", ""))
         found.sort(key=lambda item: KIND_ORDER.index(item["kind"]))
         items.extend(found)
     return items
@@ -536,6 +591,23 @@ class GitHub:
                  "labels": [label["name"] for label in d.get("labels") or []], "comments": self._comments(d.get("comments"))}
                 for d in data]
 
+    # Intake: the whole project, not the milestone view of issues(); each call is one number of the intake block.
+    def open_issue_labels(self):
+        data = run_json(["gh", "issue", "list", "-R", self.p.repo, "--state", "open", "--limit", "1000", "--json", "number,labels"])
+        return [{"number": d["number"], "labels": [label["name"] for label in d.get("labels") or []]} for d in data]
+
+    def label_names(self):
+        return {d["name"] for d in run_json(["gh", "label", "list", "-R", self.p.repo, "--limit", "1000", "--json", "name"])}
+
+    def count_issues(self, state, field, since):
+        stamp = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return len(run_json(["gh", "issue", "list", "-R", self.p.repo, "--state", state, "--search", f"{field}:>={stamp}",
+                             "--limit", "1000", "--json", "number"]))
+
+    def inbox_comments(self, number):
+        data = run_json(["gh", "issue", "view", str(number), "-R", self.p.repo, "--json", "comments"])
+        return self._comments(data.get("comments"))
+
 
 CI_QUERY = "query($path: ID!) { project(fullPath: $path) { mergeRequests(state: opened, first: 100) { nodes { iid headPipeline { status } } } } }"
 
@@ -595,6 +667,34 @@ class GitLab:
             raw = self.api(path)
         return [{"number": d["iid"], "title": d["title"], "url": d.get("web_url", ""), "labels": list(d.get("labels") or []),
                  "comments": [] if not d.get("user_notes_count") else None} for d in raw]
+
+    def paged(self, path, pages=10):
+        """All entries of a list endpoint, 100 per page, at most `pages` pages."""
+        found = []
+        for page in range(1, pages + 1):
+            part = self.api(f"{path}{'&' if '?' in path else '?'}per_page=100&page={page}")
+            found += part
+            if len(part) < 100:
+                break
+        return found
+
+    # Intake: the whole project, not the milestone view of issues().
+    def open_issue_labels(self):
+        return [{"number": d["iid"], "labels": list(d.get("labels") or [])} for d in self.paged("issues?state=opened")]
+
+    def label_names(self):
+        return {d["name"] for d in self.paged("labels")}
+
+    def count_issues(self, state, field, since):
+        stamp = quote(since.strftime("%Y-%m-%dT%H:%M:%SZ"), safe="")
+        if field == "created":
+            return len(self.paged(f"issues?scope=all&created_after={stamp}"))
+        closed = self.paged(f"issues?scope=all&state=closed&updated_after={stamp}")  # GitLab has no closed_after
+        return sum(1 for d in closed if (_parse_time(d.get("closed_at")) or since - timedelta(days=1)) >= since)
+
+    def inbox_comments(self, number):
+        raw = self.paged(f"issues/{number}/notes?sort=asc&order_by=created_at")
+        return _chronological([_comment(n.get("body"), n.get("created_at"), f"#note_{n.get('id')}") for n in raw if not n.get("system")])
 
     def complete_pr(self, pr):
         """Fetch what prs() left open (None): the notes and, without the GraphQL answer, the pipeline."""
@@ -696,15 +796,58 @@ def collect_locks(project, now, lock_dir, open_prs=None):
             fallback = datetime.fromtimestamp(os.stat(path).st_mtime, timezone.utc)
         except OSError:
             fallback = None
-        state = lock_state(info, now, project.lock_max, fallback=fallback, open_prs=open_prs)
+        name = os.path.basename(path)[len(project.name) + 1:]
+        # a triage lock names the inbox issue, not a PR: only its age can make it stale
+        state = lock_state(info, now, project.lock_max, fallback=fallback, open_prs=None if name == "triage.lock" else open_prs)
         locks.append({"name": os.path.basename(path)[len(project.name) + 1:], "path": path, **state})
     return locks
+
+
+def collect_intake(project, host, now) -> dict:
+    """The findings-intake numbers of a project. Never raises: a call that fails leaves its number None and adds
+    a note. `not_set_up` names what the project does not have yet: the inbox (no INBOX_ISSUE), the bundle label,
+    the tier labels (none of the three exists on the host)."""
+    out = {"days": INTAKE_DAYS, "created": None, "closed": None, "inbox": None, "bundles": None, "tiers": None,
+           "not_set_up": [], "notes": []}
+
+    def attempt(what, call):
+        try:
+            return call()
+        except ToolError as exc:
+            out["notes"].append(f"intake {what}: {exc}")
+            return None
+
+    since = now - timedelta(days=INTAKE_DAYS)
+    out["created"] = attempt("created", lambda: host.count_issues("all", "created", since))
+    out["closed"] = attempt("closed", lambda: host.count_issues("closed", "closed", since))
+    if project.inbox_issue:
+        comments = attempt(f"inbox #{project.inbox_issue}", lambda: host.inbox_comments(project.inbox_issue))
+        if comments is not None:
+            out["inbox"] = {"issue": int(project.inbox_issue), "open_lines": count_open_lines(comments)}
+    else:
+        out["not_set_up"].append("inbox")
+    names = attempt("labels", host.label_names)
+    issues = attempt("open issues", host.open_issue_labels)
+    if names is not None:
+        if project.bundle_label not in names:
+            out["not_set_up"].append("bundles")
+        if not any(label in names for label in project.tier_labels):
+            out["not_set_up"].append("tiers")
+    if issues is not None and names is not None:
+        counts = intake_counts(issues, project)
+        if "bundles" not in out["not_set_up"]:
+            out["bundles"] = counts["bundles"]
+        if "tiers" not in out["not_set_up"]:
+            out["tiers"] = counts["tiers"]
+    return out
 
 
 def new_result(project):
     return {"name": project.name, "repo": project.repo, "host_cli": project.host_cli, "pr_abbr": project.pr_abbr,
             "main_branch": project.main_branch, "milestone": project.milestone or None, "lock_max_minutes": project.lock_max,
             "merge_by": project.merge_by, "waiting": [],
+            "tier_labels": list(project.tier_labels), "inbox_label": project.inbox_label, "bundle_label": project.bundle_label,
+            "intake": None,
             "errors": [], "notes": [], "prs": [], "issues": [], "worktrees": [], "locks": [],
             "prs_ok": False, "issues_ok": False}
 
@@ -738,6 +881,7 @@ def _collect(project, now, include_issues, lock_dir, res):
         host = make_host(project) if remote else None
         pr_future = pool.submit(host.prs) if remote else None
         issue_future = pool.submit(host.issues) if remote and include_issues else None
+        intake_future = pool.submit(collect_intake, project, host, now) if remote and include_issues and project.merge_by != "maintainer" else None
 
         worktrees = []
         try:
@@ -759,6 +903,10 @@ def _collect(project, now, include_issues, lock_dir, res):
                 res["issues_ok"] = True
             except ToolError as exc:
                 errors.append(f"issue list: {exc}")
+
+        if intake_future:
+            res["intake"] = intake_future.result()
+            res["notes"] += res["intake"].pop("notes")
 
         if res["issues_ok"] and project.milestone and not issues:
             res["notes"].append(f"milestone '{project.milestone}' has no open issues (or the name is misspelled)")
@@ -835,6 +983,33 @@ def clip(text: str, width: int) -> str:
     return text if len(text) <= width else text[: width - 1] + "…"
 
 
+def intake_lines(intake) -> list:
+    """The lines of the intake block; `?` for a number whose call failed, `not set up` for what the project lacks."""
+    def number(value):
+        return "?" if value is None else str(value)
+
+    missing = intake["not_set_up"]
+    lines = [f"issues created {number(intake['created'])}, closed {number(intake['closed'])} in the last {intake['days']} days"]
+    if "inbox" in missing:
+        lines.append("inbox: not set up")
+    elif intake["inbox"] is None:
+        lines.append("inbox: ?")
+    else:
+        count = intake["inbox"]["open_lines"]
+        lines.append(f"inbox #{intake['inbox']['issue']}: {count} open line{'' if count == 1 else 's'}")
+    if "bundles" in missing:
+        lines.append("bundles: not set up")
+    else:
+        lines.append(f"bundles: {number(intake['bundles'])} open")
+    if "tiers" in missing:
+        lines.append("tiers: not set up")
+    elif intake["tiers"] is None:
+        lines.append("tiers: ?")
+    else:
+        lines.append("tiers (open): " + ", ".join(f"{label} {count}" for label, count in intake["tiers"].items()))
+    return lines
+
+
 def render_text(results, items) -> str:
     out = []
     for res in results:
@@ -871,6 +1046,9 @@ def render_text(results, items) -> str:
                 out.append(f"    #{issue['number']:<5} {clip(issue['title'], 60):<60}  {', '.join(tags)}")
         elif res["issues_ok"]:
             out.append("  Issues: none open")
+        if res.get("intake"):
+            out.append("  Intake")
+            out += [f"    {line}" for line in intake_lines(res["intake"])]
         if res["worktrees"]:
             out.append("  Worktrees")
             for wt in res["worktrees"]:

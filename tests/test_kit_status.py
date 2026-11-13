@@ -241,6 +241,52 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(ks.project_from_env({"MILESTONE": "M1"}, "stem").milestone, "M1")
         self.assertEqual(ks.project_from_env({}, "stem").name, "stem")
 
+    def test_project_from_env_reads_the_intake_keys_with_defaults(self):
+        bare = ks.project_from_env({}, "stem")
+        self.assertEqual((bare.inbox_issue, bare.inbox_label, bare.bundle_label, bare.tier_labels),
+                         ("", "inbox", "bundle", ("tier:1", "tier:2", "tier:3")))
+        project = ks.project_from_env({"INBOX_ISSUE": "34", "INBOX_LABEL": "findings", "BUNDLE_LABEL": "class",
+                                       "TIER_1_LABEL": "p0", "TIER_2_LABEL": "TODO"}, "stem")
+        self.assertEqual((project.inbox_issue, project.inbox_label, project.bundle_label, project.tier_labels),
+                         ("34", "findings", "class", ("p0", "tier:2", "tier:3")))
+        self.assertEqual(ks.project_from_env({"INBOX_ISSUE": "TODO"}, "stem").inbox_issue, "")
+        self.assertEqual(ks.project_from_env({"INBOX_ISSUE": "#34"}, "stem").inbox_issue, "")  # the number only
+
+
+class IntakeTest(unittest.TestCase):
+    project = ks.project_from_env({}, "demo")
+
+    def test_open_lines_are_the_unticked_checkbox_lines(self):
+        comments = [c("- [ ] wrong spelling | Mieter | Mieterr | abc | PR #12\n- [x] done | x | y | def | PR #13 → bundle #40"),
+                    c("Triage run 2026-11-01: 1 handled"),
+                    c("  - [ ] indented\n* [ ] star bullet\n[ ] no bullet\n- [ ]no space\n- [ ]\ntext - [ ] inside"), "- [ ] plain string"]
+        self.assertEqual(ks.count_open_lines(comments), 5)
+        self.assertEqual(ks.count_open_lines([]), 0)
+        self.assertEqual(ks.count_open_lines(None), 0)
+
+    def test_counts_per_tier_bundles_and_none_without_the_inbox(self):
+        issues = [{"number": 1, "labels": ["inbox"]}, {"number": 2, "labels": ["tier:1"]},
+                  {"number": 3, "labels": ["tier:2", "bundle", "task"]}, {"number": 4, "labels": ["tier:3", "tier:2"]},
+                  {"number": 5, "labels": ["tier:3"]}, {"number": 6, "labels": ["task"]}, {"number": 7, "labels": []}]
+        counts = ks.intake_counts(issues, self.project)
+        self.assertEqual(counts["bundles"], 1)
+        self.assertEqual(counts["tiers"], {"tier:1": 1, "tier:2": 2, "tier:3": 1, "none": 2})
+        self.assertEqual(ks.intake_counts([], self.project)["tiers"], {"tier:1": 0, "tier:2": 0, "tier:3": 0, "none": 0})
+
+    def test_lines_say_not_set_up_for_what_the_project_lacks(self):
+        full = {"days": 7, "created": 12, "closed": 5, "inbox": {"issue": 34, "open_lines": 7}, "bundles": 3,
+                "tiers": {"tier:1": 2, "tier:2": 9, "tier:3": 14, "none": 3}, "not_set_up": []}
+        self.assertEqual(ks.intake_lines(full), ["issues created 12, closed 5 in the last 7 days", "inbox #34: 7 open lines",
+                                                  "bundles: 3 open", "tiers (open): tier:1 2, tier:2 9, tier:3 14, none 3"])
+        bare = {"days": 7, "created": 0, "closed": 0, "inbox": None, "bundles": None, "tiers": None,
+                "not_set_up": ["inbox", "bundles", "tiers"]}
+        self.assertEqual(ks.intake_lines(bare)[1:], ["inbox: not set up", "bundles: not set up", "tiers: not set up"])
+        failed = {**bare, "created": None, "closed": None, "not_set_up": []}
+        self.assertEqual(ks.intake_lines(failed), ["issues created ?, closed ? in the last 7 days", "inbox: ?", "bundles: ? open", "tiers: ?"])
+        one = {**full, "inbox": {"issue": 34, "open_lines": 1}}
+        self.assertIn("inbox #34: 1 open line", ks.intake_lines(one))
+        self.assertNotIn("lines", ks.intake_lines(one)[1])
+
     def test_load_projects_filters_by_file_name_and_honors_config_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             briefs = Path(tmp) / "briefs"
@@ -270,10 +316,11 @@ def project_result(**extra):
     return base
 
 
-def issue(number, title="t", **flags):
+def issue(number, title="t", labels=None, **flags):
     merged = {"pr": False, "blocked": False, "question": False, "in_progress": False, "note": ""}
     merged.update(flags)
-    return {"number": number, "title": title, "url": f"https://h/i/{number}", "flags": merged, "checked": True}
+    return {"number": number, "title": title, "url": f"https://h/i/{number}", "flags": merged, "checked": True,
+            "labels": labels or []}
 
 
 def pr(number, kind="none", line="", **extra):
@@ -329,7 +376,8 @@ class NeedsYouTest(unittest.TestCase):
         self.assertEqual(ks.needs_you([project_result(worktrees=[fresh_claim])]), [])
 
     def test_chain_ended_needs_a_milestone_no_pr_no_work_and_a_free_issue(self):
-        base = dict(milestone="M1", issues=[issue(1, blocked=True), issue(2, "next one"), issue(3)])
+        t3 = ["tier:3"]
+        base = dict(milestone="M1", issues=[issue(1, blocked=True, labels=t3), issue(2, "next one", labels=t3), issue(3, labels=t3)])
         items = ks.needs_you([project_result(**base)])
         self.assertEqual([i["kind"] for i in items], ["blocked", "chain_ended"])
         self.assertIn("#2 next one", items[1]["text"])
@@ -338,6 +386,29 @@ class NeedsYouTest(unittest.TestCase):
         self.assertNotIn(("demo", "chain_ended"), self.kinds(project_result(**{**base, "worktrees": [worktree(2)]})))
         self.assertNotIn(("demo", "chain_ended"), self.kinds(project_result(**{**base, "issues": [issue(1, blocked=True), issue(2, pr=True)]})))
         self.assertNotIn(("demo", "chain_ended"), self.kinds(project_result(**{**base, "issues_ok": False})))
+
+    def test_the_next_issue_is_picked_by_tier_and_never_the_inbox_or_an_untiered_one(self):
+        issues = [issue(1, "inbox", labels=["inbox", "tier:1"]), issue(2, "untiered"), issue(3, "late", labels=["tier:3"]),
+                  issue(4, "bundle", labels=["bundle", "tier:2"]), issue(9, "blocker", labels=["tier:2", "tier:1"]),
+                  issue(5, "tier two", labels=["tier:2"])]
+        (item,) = ks.needs_you([project_result(milestone="M1", issues=issues)])
+        self.assertIn("4 open unblocked issue(s), next #9 blocker", item["text"])  # the most urgent label of an issue counts
+        later = issues[:2] + [issue(3, "late", labels=["tier:3"]), issue(4, "bundle", labels=["bundle", "tier:2"]), issue(5, "tier two", labels=["tier:2"])]
+        (item,) = ks.needs_you([project_result(milestone="M1", issues=later)])
+        self.assertIn("next #4 bundle", item["text"])  # a bundle is an ordinary work item; ties go by number
+
+    def test_issues_without_a_tier_end_the_chain_with_a_hint(self):
+        (item,) = ks.needs_you([project_result(milestone="M1", issues=[issue(1, "inbox", labels=["inbox"]), issue(2, "plain")])])
+        self.assertEqual(item["kind"], "chain_ended")
+        self.assertIn("1 open unblocked issue(s) without a tier label, which are never picked", item["text"])
+        self.assertIn("#2 plain", item["text"])
+        self.assertEqual(ks.needs_you([project_result(milestone="M1", issues=[issue(1, "inbox", labels=["inbox"])])]), [])
+
+    def test_the_tier_labels_of_a_project_file_are_the_ones_that_count(self):
+        custom = dict(milestone="M1", tier_labels=["p0", "p1", "p2"], inbox_label="triage")
+        issues = [issue(1, "p-one", labels=["p1"]), issue(2, "default name", labels=["tier:1"]), issue(3, "inbox", labels=["triage", "p0"])]
+        (item,) = ks.needs_you([project_result(issues=issues, **custom)])
+        self.assertIn("next #1 p-one", item["text"])
 
     def test_errors_are_listed_first_per_project(self):
         items = ks.needs_you([project_result(name="a", errors=["glab: 401 Unauthorized"], issues=[issue(1, blocked=True)]),
@@ -415,15 +486,22 @@ DATA = {{
         "comments": [comment("Not merged: CI red for reasons outside the diff.\\n\\nState: CI red", 10)]}},
     ],
     "issue": [
-      {{"number": 5, "title": "blocked issue", "labels": [], "url": "https://gh/issues/5",
+      {{"number": 5, "title": "blocked issue", "labels": [{{"name": "tier:1"}}], "url": "https://gh/issues/5",
         "comments": [comment("Blocked: owner decision needed on the questions below.\\n\\n1. ...", 30)]}},
-      {{"number": 6, "title": "asks a question", "labels": [], "url": "https://gh/issues/6",
+      {{"number": 6, "title": "asks a question", "labels": [{{"name": "tier:2"}}, {{"name": "bundle"}}], "url": "https://gh/issues/6",
         "comments": [comment("Questions before implementation. The rest is being implemented without them.", 30)]}},
-      {{"number": 7, "title": "claimed long ago", "labels": [], "url": "https://gh/issues/7", "comments": []}},
-      {{"number": 8, "title": "has a pr", "labels": [], "url": "https://gh/issues/8", "comments": []}},
+      {{"number": 7, "title": "claimed long ago", "labels": [{{"name": "tier:3"}}], "url": "https://gh/issues/7", "comments": []}},
+      {{"number": 8, "title": "has a pr", "labels": [{{"name": "tier:3"}}, {{"name": "task"}}], "url": "https://gh/issues/8", "comments": []}},
       {{"number": 9, "title": "answered", "labels": [], "url": "https://gh/issues/9",
         "comments": [comment("Blocked: x", 90), comment("## Owner decision\\n\\nGo ahead.", 60)]}},
+      {{"number": 34, "title": "Findings inbox", "labels": [{{"name": "inbox"}}], "url": "https://gh/issues/34",
+        "comments": [comment("- [ ] wrong spelling | Mieter | Mieterr | abc | PR #12\\n- [x] raw code | x | y | def | PR #13 -> bundle #40", 300),
+                     comment("Triage run 2026-11-01: 2 open lines handled", 200),
+                     comment("- [ ] ? | file:1 | z | 123 | PR #14\\n- [ ] flaky test | t | f | 124 | PR #14", 100)]}},
     ],
+    "label_names": ["task", "bundle", "inbox", "tier:1", "tier:2", "tier:3"],
+    "created": [{{"number": 41}}, {{"number": 40}}, {{"number": 39}}, {{"number": 34}}],
+    "closed": [{{"number": 12}}, {{"number": 11}}],
   }},
   "acme/up": {{
     "pr": [
@@ -464,6 +542,16 @@ if args[:2] == ["pr", "list"]:
     if option("--author") == "@me":
         found = [d for d in found if d["author"]["login"] == "me-login"]
     print(json.dumps(found))
+elif args[:2] == ["label", "list"]:
+    print(json.dumps([{{"name": n}} for n in DATA[repo].get("label_names", [])]))
+elif args[:2] == ["issue", "view"]:
+    found = [d for d in DATA[repo]["issue"] if d["number"] == int(args[2])]
+    if not found:
+        sys.stderr.write("Could not resolve to an Issue with the number of " + args[2] + ".\\n")
+        sys.exit(1)
+    print(json.dumps({{"comments": found[0]["comments"]}}))
+elif args[:2] == ["issue", "list"] and (option("--search") or "").startswith(("created:>=", "closed:>=")):
+    print(json.dumps(DATA[repo].get(option("--search").split(":")[0], [])))
 elif args[:2] == ["issue", "list"]:
     milestone = option("--milestone") or "M1"
     if milestone not in ("M1", "M2"):
@@ -502,9 +590,21 @@ elif path.startswith("projects/acme%2Fgl/merge_requests/3/notes?") and "sort=des
     print(json.dumps([note("Not merged: waiting for the owner.", "2026-11-09T11:00:00.000Z", id=3),
                       note("added 1 commit", "2026-11-09T10:30:00.000Z", True, 2),
                       note("Round 1 of at most 5 pushed", "2026-11-09T10:00:00.000Z", id=1)]))
+elif path.startswith("projects/acme%2Fgl/labels?"):
+    print(json.dumps([{{"name": "inbox"}}, {{"name": "tier:1"}}, {{"name": "bundle"}}]))
+elif path.startswith("projects/acme%2Fgl/issues?") and "created_after=" in path:
+    print(json.dumps([{{"iid": 7}}, {{"iid": 6}}, {{"iid": 2}}]))
+elif path.startswith("projects/acme%2Fgl/issues?") and "updated_after=" in path:
+    import datetime
+    stamp = lambda days: (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(json.dumps([{{"iid": 5, "closed_at": stamp(1)}}, {{"iid": 4, "closed_at": stamp(30)}}, {{"iid": 3, "closed_at": stamp(6)}}]))
+elif path.startswith("projects/acme%2Fgl/issues/1/notes?"):
+    print(json.dumps([note("- [ ] raw code | Mahnung | 400 | abc | MR #3\\n- [ ] ? | file:2 | z | def | MR #3", "2026-11-09T08:00:00.000Z", id=7),
+                      note("added label", "2026-11-09T08:30:00.000Z", True, 8),
+                      note("Triage run 2026-11-09: 1 handled", "2026-11-09T09:00:00.000Z", id=9)]))
 elif path.startswith("projects/acme%2Fgl/issues?"):
-    print(json.dumps([{{"iid": 2, "title": "gl blocked", "labels": [], "web_url": "https://gl/issues/2", "user_notes_count": 1}},
-                      {{"iid": 1, "title": "gl quiet", "labels": [], "web_url": "https://gl/issues/1", "user_notes_count": 0}}]))
+    print(json.dumps([{{"iid": 2, "title": "gl blocked", "labels": ["tier:1", "bundle"], "web_url": "https://gl/issues/2", "user_notes_count": 1}},
+                      {{"iid": 1, "title": "gl quiet", "labels": ["inbox"], "web_url": "https://gl/issues/1", "user_notes_count": 0}}]))
 elif path.startswith("projects/acme%2Fgl/issues/2/notes?"):
     print(json.dumps([note("Blocked: spec is wrong", "2026-11-09T09:00:00.000Z")]))
 elif path.startswith("projects/acme%2Fglm/merge_requests?"):
@@ -602,9 +702,9 @@ class EndToEndTest(unittest.TestCase):
         briefs = base / "config" / "briefs"
         briefs.mkdir(parents=True)
         projects = {
-            "demo": f"PROJECT_NAME=kitdemo\nREPO=acme/demo\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={demo}\nMAIN_BRANCH=main\nMILESTONE=M1\nLOCK_MAX=30 minutes\n",
+            "demo": f"PROJECT_NAME=kitdemo\nREPO=acme/demo\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={demo}\nMAIN_BRANCH=main\nMILESTONE=M1\nLOCK_MAX=30 minutes\nINBOX_ISSUE=34\n",
             "empty": f"PROJECT_NAME=kitempty\nREPO=acme/empty\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={empty}\nMAIN_BRANCH=main\nMILESTONE=M1\nLOCK_MAX=TODO\n",
-            "gitlab": f"PROJECT_NAME=kitgl\nREPO=acme/gl\nHOST_CLI=glab\nHOST_PR_ABBR=MR\nREPO_PATH={gl}\nMAIN_BRANCH=main\nMILESTONE=none\nLOCK_MAX=TODO\n",
+            "gitlab": f"PROJECT_NAME=kitgl\nREPO=acme/gl\nHOST_CLI=glab\nHOST_PR_ABBR=MR\nREPO_PATH={gl}\nMAIN_BRANCH=main\nMILESTONE=none\nLOCK_MAX=TODO\nINBOX_ISSUE=1\n",
             "upstream": f"PROJECT_NAME=kitup\nREPO=acme/up\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={up}\nMAIN_BRANCH=main\nMILESTONE=M1\nLOCK_MAX=TODO\nMERGE_BY=maintainer\n",
             "glm": f"PROJECT_NAME=kitglm\nREPO=acme/glm\nHOST_CLI=glab\nHOST_PR_ABBR=MR\nREPO_PATH={glm}\nMAIN_BRANCH=main\nMILESTONE=none\nLOCK_MAX=TODO\nMERGE_BY=maintainer\n",
             "broken": f"PROJECT_NAME=kitbroken\nREPO=acme/nowhere\nHOST_CLI=gh\nHOST_PR_ABBR=PR\nREPO_PATH={base / 'missing'}\nMAIN_BRANCH=main\nMILESTONE=none\nLOCK_MAX=TODO\n",
@@ -657,6 +757,63 @@ class EndToEndTest(unittest.TestCase):
         urls = {item["kind"]: item["url"] for item in doc["needs_you"]}
         self.assertEqual((urls["blocked"], urls["not_merged"]), ("https://gh/issues/5", "https://gh/pull/21"))
 
+    def test_intake_numbers_of_a_github_project(self):
+        project = self.document("demo")["projects"][0]
+        self.assertEqual(project["notes"], [])
+        self.assertEqual(project["intake"], {"days": 7, "created": 4, "closed": 2, "inbox": {"issue": 34, "open_lines": 3},
+                                             "bundles": 1, "tiers": {"tier:1": 1, "tier:2": 1, "tier:3": 2, "none": 1}, "not_set_up": []})
+        out = self.run_script("demo").stdout
+        block = out.split("  Intake\n")[1].split("  Worktrees")[0]
+        self.assertEqual(block.splitlines(), ["    issues created 4, closed 2 in the last 7 days", "    inbox #34: 3 open lines",
+                                              "    bundles: 1 open", "    tiers (open): tier:1 1, tier:2 1, tier:3 2, none 1"])
+
+    def test_a_project_without_inbox_and_labels_shows_not_set_up(self):
+        project = self.document("empty")["projects"][0]
+        self.assertEqual(project["errors"], [])
+        self.assertEqual((project["intake"]["not_set_up"], project["intake"]["inbox"], project["intake"]["bundles"], project["intake"]["tiers"]),
+                         (["inbox", "bundles", "tiers"], None, None, None))
+        self.assertEqual((project["intake"]["created"], project["intake"]["closed"]), (0, 0))
+        out = self.run_script("empty").stdout
+        for line in ("inbox: not set up", "bundles: not set up", "tiers: not set up"):
+            self.assertIn(f"    {line}\n", out)
+
+    def test_intake_numbers_of_a_gitlab_project(self):
+        project = self.document("gitlab")["projects"][0]
+        self.assertEqual(project["notes"], [])
+        # created: 3 in the window; closed: 3 asked for, one of them closed 30 days ago; inbox: 2 unticked lines in the notes, a system note skipped
+        self.assertEqual(project["intake"], {"days": 7, "created": 3, "closed": 2, "inbox": {"issue": 1, "open_lines": 2},
+                                             "bundles": 1, "tiers": {"tier:1": 1, "tier:2": 0, "tier:3": 0, "none": 0}, "not_set_up": []})
+
+    def test_a_project_whose_maintainer_merges_has_no_intake(self):
+        project = self.document("upstream")["projects"][0]
+        self.assertIsNone(project["intake"])
+        self.assertNotIn("Intake", self.run_script("upstream").stdout)
+
+    def test_a_failing_intake_call_is_a_note_and_leaves_the_rest(self):
+        briefs = self.base / "config" / "briefs"
+        text = (briefs / "demo.env").read_text().replace("INBOX_ISSUE=34", "INBOX_ISSUE=99")  # no such issue
+        (briefs / "demo.env").write_text(text)
+        project = self.document("demo")["projects"][0]
+        self.assertEqual(project["errors"], [])
+        self.assertEqual(len(project["notes"]), 1)
+        self.assertIn("intake inbox #99", project["notes"][0])
+        self.assertIsNone(project["intake"]["inbox"])
+        self.assertEqual((project["intake"]["created"], project["intake"]["bundles"]), (4, 1))
+        self.assertIn("    inbox: ?\n", self.run_script("demo").stdout)
+
+    def test_a_triage_lock_names_the_inbox_not_a_pr_and_goes_stale_by_age_only(self):
+        stamp = (self.now - timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%SZ")  # LOCK_MAX of this project: the default, 120 minutes
+        for name in ("kitempty-triage.lock", "kitempty-merge.lock"):
+            (self.lock_dir / name).mkdir()
+            (self.lock_dir / name / "info").write_text(f"34 {stamp}\n")
+        locks = {item["name"]: item for item in self.document("empty")["projects"][0]["locks"]}
+        self.assertTrue(locks["merge.lock"]["stale"])  # names #34, which is no open PR, and is older than 30 minutes
+        self.assertFalse(locks["triage.lock"]["stale"])
+        self.assertEqual(locks["triage.lock"]["pr"], 34)
+        (self.lock_dir / "kitempty-triage.lock" / "info").write_text(f"34 {(self.now - timedelta(minutes=130)).strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
+        locks = {item["name"]: item for item in self.document("empty")["projects"][0]["locks"]}
+        self.assertTrue(locks["triage.lock"]["stale"])
+
     def test_text_output_has_blocks_and_a_needs_you_section(self):
         out = self.run_script("demo").stdout
         self.assertIn("== kitdemo", out)
@@ -673,6 +830,7 @@ class EndToEndTest(unittest.TestCase):
         doc = self.document("empty")
         self.assertEqual([i["kind"] for i in doc["needs_you"]], ["chain_ended"])
         self.assertIn("#1 next in line", doc["needs_you"][0]["text"])
+        self.assertIn("without a tier label, which are never picked", doc["needs_you"][0]["text"])  # the fixture has no tier labels
 
     def test_gitlab_project_uses_note_counts_graphql_ci_and_remote_host(self):
         project = self.document("gitlab")["projects"][0]

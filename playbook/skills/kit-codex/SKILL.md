@@ -2,7 +2,7 @@
 name: kit
 description: >-
   Use when the user invokes /kit or $kit, including status, next, issue, pr, bug,
-  feat, or init, or explicitly asks to use their local Project Kit in Codex.
+  feat, triage, or init, or explicitly asks to use their local Project Kit in Codex.
 ---
 
 # Project Kit: Codex supplement
@@ -47,7 +47,7 @@ are not Codex tools. The mapping:
   Codex cannot establish the state of Claude sessions; preserve that uncertainty
   and use the original worktree/lock checks as well. Never infer that a foreign
   worktree is abandoned.
-- **Start a session:** `/kit issue N`, `/kit pr N`, and `/kit next` request one new
+- **Start a session:** `/kit issue N`, `/kit pr N`, `/kit triage`, and `/kit next` request one new
   task, after the original eligibility and duplicate checks. Use `list_projects`,
   match the registered `REPO_PATH` on the current host exactly, and use its
   returned project ID with `create_thread`. Do not choose a similarly named
@@ -62,7 +62,7 @@ are not Codex tools. The mapping:
   file, verbatim: `<PROJECT_NAME> #<N>` at creation, and the task renames itself to
   `<PROJECT_NAME> #<N>: <issue title>` (issue) or
   `<PROJECT_NAME> #<issue>: review <PR_ABBR> <N>` (maintainer) once it has read the
-  issue. Never substitute the product's marketing name, a slogan or a summary of
+  issue; a triage task is named `<PROJECT_NAME>: triage` at creation and keeps that name. Never substitute the product's marketing name, a slogan or a summary of
   the work; `kit-status.py` and the owner match sessions by this prefix.
 - **Prepare the prompt:** generate the original brief with `fill-brief.py` as
   documented, using a unique task-owned temporary directory for `--out`. Put the
