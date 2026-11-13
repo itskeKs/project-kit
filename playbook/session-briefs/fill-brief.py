@@ -11,6 +11,7 @@ session fills at run time (such as <PR_NO> in the issue brief) are not in the ta
     fill-brief.py check [<project>]                     list keys that are still missing or TODO
     fill-brief.py issue [<project>] <issue-no> [--milestone T] [--handover "after merge"|"after PR"] [--copy]
     fill-brief.py maintainer [<project>] <pr-no> [--copy]
+    fill-brief.py triage [<project>] [--copy]
 
 <project> is a checkout path or a project name that matches one file in the config folder
 (a unique part of the name is enough, e.g. "shop"). Left out, it is the project whose
@@ -18,6 +19,9 @@ checkout contains the current directory.
 
 Values given on the command line win over the project file; the project file wins over the
 derived defaults. Nothing here touches the repository.
+
+The triage brief takes no number: it empties the project's inbox issue. A project with MERGE_BY=maintainer
+has no inbox (its sessions post nothing), so `triage` refuses it.
 
 The briefs hold conditional blocks, each marker on a line of its own, no nesting:
 
@@ -41,11 +45,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 KIT_PATH = HERE.parent.parent
-BRIEFS = {"issue": HERE / "issue-session.md", "maintainer": HERE / "maintainer-session.md"}
+BRIEFS = {"issue": HERE / "issue-session.md", "maintainer": HERE / "maintainer-session.md",
+          "triage": HERE / "triage-session.md"}
 CONFIG_DIR = Path(os.environ.get("PROJECT_KIT_CONFIG", Path.home() / ".config" / "project-kit")) / "briefs"
 TODO = "TODO"
 MERGE_BY_VALUES = ("session", "maintainer")
-MERGE_ONLY = ("MERGE_METHOD", "LOCK_MAX")  # with MERGE_BY=maintainer these need a value only where a brief still names them
+# with MERGE_BY=maintainer these need a value only where a brief still names them (INBOX_ISSUE: such a project posts nothing)
+MERGE_ONLY = ("MERGE_METHOD", "LOCK_MAX", "INBOX_ISSUE")
 CONDITIONAL = re.compile(
     r"^<!-- if (\w+)=(\w+) -->\n(.*?)^(?:<!-- else -->\n(.*?))?<!-- endif -->(?:\n|\Z)", re.M | re.S)
 MARKER = re.compile(r"^<!-- (?:if \w+=\w+|else|endif) -->", re.M)
@@ -76,7 +82,27 @@ PROJECT_KEYS = [
     ("LOCK_MAX", "twice SUITE_DURATION plus 30 minutes, e.g. '34 minutes'"),
     ("MILESTONE", "default milestone for issue chains, or 'none'"),
     ("HANDOVER", "'after merge' (one issue at a time) or 'after PR' (parallel chain)"),
+    ("INBOX_ISSUE", "number of the project's one standing inbox issue (label INBOX_LABEL), where findings that fit no bundle and no open issue are recorded; create it once, see onboarding.md"),
+    ("INBOX_LABEL", "label of the inbox issue"),
+    ("BUNDLE_LABEL", "label of the bundle issues, one open issue per class of defect"),
+    ("TIER_1_LABEL", "label for tier 1, launch blocker"),
+    ("TIER_2_LABEL", "label for tier 2, before launch"),
+    ("TIER_3_LABEL", "label for tier 3, after launch"),
 ]
+
+# Keys that have a sensible value without asking; a project file that does not name them gets these.
+DEFAULTS = {
+    "MERGE_METHOD": "squash",
+    "LOCAL_GATE": "none",
+    "HANDOVER": "after merge",
+    "MERGE_BY": "session",
+    "MILESTONE": "none",
+    "INBOX_LABEL": "inbox",
+    "BUNDLE_LABEL": "bundle",
+    "TIER_1_LABEL": "tier:1",
+    "TIER_2_LABEL": "tier:2",
+    "TIER_3_LABEL": "tier:3",
+}
 
 
 def run(cmd, cwd=None):
@@ -87,7 +113,7 @@ def run(cmd, cwd=None):
 
 
 def table_keys(brief: Path):
-    """Placeholder names from the brief's table: <NAME> and {{NAME}} in the first cell."""
+    """Placeholder names from the brief's table: <NAME> and {{NAME}} in the first cell (capitals, digits, underscore)."""
     keys = []
     for line in brief.read_text().splitlines():
         if line == "---":
@@ -95,21 +121,16 @@ def table_keys(brief: Path):
         if not line.startswith("| `"):
             continue
         cell = line.split("|")[1]
-        keys += re.findall(r"<([A-Z_]+)>|\{\{([A-Z_]+)\}\}", cell)
+        keys += re.findall(r"<([A-Z][A-Z0-9_]*)>|\{\{([A-Z][A-Z0-9_]*)\}\}", cell)
     return [a or b for a, b in keys]
 
 
 def derive(repo: Path):
     """Values that can be read from the checkout; the rest is TODO."""
-    values = {k: TODO for k, _ in PROJECT_KEYS}
+    values = {k: DEFAULTS.get(k, TODO) for k, _ in PROJECT_KEYS}
     values["PROJECT_NAME"] = repo.name
     values["REPO_PATH"] = str(repo)
     values["KIT_PATH"] = str(KIT_PATH)
-    values["MERGE_METHOD"] = "squash"
-    values["LOCAL_GATE"] = "none"
-    values["HANDOVER"] = "after merge"
-    values["MERGE_BY"] = "session"
-    values["MILESTONE"] = "none"
     url = run(["git", "-C", str(repo), "remote", "get-url", "origin"])
     m = re.match(r"(?:git@|https?://)([^:/]+)[:/](.+?)(?:\.git)?$", url)
     if m:
@@ -238,10 +259,25 @@ def resolve_conditionals(body, values):
     return body
 
 
+def inbox_error(values):
+    """Why INBOX_ISSUE is not usable, or '': once set, it is the bare issue number."""
+    value = values.get("INBOX_ISSUE", TODO)
+    if value in ("", TODO) or value.isdigit():
+        return ""
+    return f"INBOX_ISSUE must be the issue number without '#', is {value!r}"
+
+
+def usable(kind, values):
+    """Whether the project can use this brief: a project whose maintainer merges has no inbox to triage."""
+    return not (kind == "triage" and values["MERGE_BY"] != "session")
+
+
 def brief_body(kind, values):
     """The brief below its separator, conditional blocks resolved, placeholders still in place."""
     if merge_by_error(values):
         sys.exit(merge_by_error(values))
+    if not usable(kind, values):
+        sys.exit("triage needs MERGE_BY=session: a project whose maintainer merges has no inbox, its sessions post nothing")
     return resolve_conditionals(BRIEFS[kind].read_text().split("\n---\n", 1)[1], values)
 
 
@@ -258,6 +294,8 @@ def fill(kind, values):
         gaps = [k for k in gaps if k not in MERGE_ONLY or names(body, k)]
     if gaps:
         sys.exit(f"missing or TODO: {', '.join(gaps)} (edit {config_path(Path(values['REPO_PATH']))})")
+    if names(body, "INBOX_ISSUE") and inbox_error(values):
+        sys.exit(inbox_error(values))
     for key in keys:
         body = body.replace(f"<{key}>", values[key]).replace(f"{{{{{key}}}}}", values[key])
     left = [k for k in keys if names(body, k)]
@@ -282,10 +320,11 @@ def main(argv=None):
     p_init.add_argument("--force", action="store_true", help="overwrite an existing project file")
     p_check = sub.add_parser("check", help="list keys that are still missing or TODO")
     p_check.add_argument("repo", nargs="?", help="project name or checkout; default: the project of the current directory")
-    for kind, number in (("issue", "issue_no"), ("maintainer", "pr_no")):
+    for kind, number in (("issue", "issue_no"), ("maintainer", "pr_no"), ("triage", None)):
         p = sub.add_parser(kind, help=f"fill the {kind} brief")
         p.add_argument("repo", nargs="?", help="project name or checkout; default: the project of the current directory")
-        p.add_argument(number, type=int)
+        if number:
+            p.add_argument(number, type=int)
         p.add_argument("--copy", action="store_true", help="copy the brief to the clipboard instead of printing it")
         p.add_argument("--out", help="write the brief to this file")
         if kind == "issue":
@@ -310,14 +349,17 @@ def main(argv=None):
         print(f"fill in: {', '.join(todo)}" if todo else "no TODOs left")
         return
 
-    values = {**{k: TODO for k, _ in PROJECT_KEYS}, "MERGE_BY": "session", **read_config(path)}
+    values = {**{k: DEFAULTS.get(k, TODO) for k, _ in PROJECT_KEYS}, **read_config(path)}
     if args.cmd == "check":
         if merge_by_error(values):
             sys.exit(f"{path}: {merge_by_error(values)}")
         todo = missing(values, [k for k, _ in PROJECT_KEYS])
         if values["MERGE_BY"] != "session":
-            text = "".join(brief_body(kind, values) for kind in BRIEFS)
+            text = "".join(brief_body(kind, values) for kind in BRIEFS if usable(kind, values))
             todo = [k for k in todo if k not in MERGE_ONLY or names(text, k)]
+        problem = inbox_error(values)
+        if problem:
+            sys.exit(f"{path}: {problem}")
         print(f"{path}: " + (f"fill in {', '.join(todo)}" if todo else "complete"))
         return
 
@@ -327,7 +369,7 @@ def main(argv=None):
             values["MILESTONE"] = args.milestone
         if args.handover:
             values["HANDOVER"] = args.handover
-    else:
+    elif args.cmd == "maintainer":
         values["PR_NO"] = str(args.pr_no)
     text = fill(args.cmd, values)
 
