@@ -143,8 +143,11 @@ follows the project's template and rules, get the owner's OK, create it, and sta
    the OK or corrections. Do not create anything before the OK; apply corrections yourself.
 4. Create it: GitHub `gh issue create -R REPO --title "<title>" --body-file <scratchpad>/kit-issue.md --label task [--milestone "<MILESTONE>"]`;
    GitLab `glab issue create -R REPO -t "<title>" -F <scratchpad>/kit-issue.md -l task [-m "<MILESTONE>"]`
-   (if `-F` is not accepted, pass `-d "$(cat <file>)"`). Take the number from the output, delete
-   the scratch file, and post the issue link.
+   (if `-F` is not accepted, pass `-d "$(cat <file>)"`). With `MERGE_BY=maintainer` leave out the
+   label: the tracker and its labels are the maintainer's, and `task` may not exist there, which
+   makes the create fail. The issue is still the owner's own, opened without an assignee, so
+   `/kit next` can pick it. Take the number from the output, delete the scratch file, and post the
+   issue link.
 5. Ask in one line whether to start it now; on yes, continue as `/kit issue <N>` (one chain per
    project: if a chain is running, say so and leave the issue for `/kit next`). With several
    drafts, create all, start only the first.
