@@ -61,6 +61,12 @@ enforcement; every baseline and safety rule here stays in force. <!-- proven -->
   {{HOST_PR_ABBR}}, for a self-contained defect on the {{HOST_PR_ABBR}}'s own journey that has no class.
   A sentence in the {{HOST_PR_ABBR}} description is not a record. Before asking the owner a question,
   check the decisions already recorded (comments headed "Owner decision"). <!-- proven -->
+- What repeats becomes a script. Before a procedure of several commands, look in `make help` and
+  `scripts/`. A procedure of three or more commands that you run by hand and that an earlier
+  session ran too (it is in an earlier {{HOST_PR_ABBR}} or merge comment, or you needed it twice)
+  gets one line on the inbox issue with the class `repeat`:
+  `- [ ] repeat | <what the procedure is for> | <the commands, shortened> | <SHA> | {{HOST_PR_ABBR}} #M`.
+  A triage run asks the owner whether it becomes a script; do not write the script in passing.
 - Work is picked by tier, not by issue number: labels `tier:1` (launch blocker), `tier:2` (before
   launch), `tier:3` (after launch), inside a tier the roadmap order. The inbox and an issue without
   a tier are never picked; bundles are ordinary work items. <!-- proven -->

@@ -56,6 +56,11 @@ an issue.
   bundle (three or more lines of one kind open a new bundle), covered by an existing issue, or
   dismissed with a reason. A line in a blocker category is never dismissed. Nothing disappears
   without a trace.
+- **What repeats becomes a script, after you said yes.** A session that runs the same procedure of
+  several commands by hand that an earlier session already ran records it as a line with the class
+  `repeat`. The triage run turns it into an issue and asks you "Build this script?"; `/kit status`
+  shows the question. `/kit scripts` searches a project once for such procedures, for example
+  right after `/kit init`.
 - **A class is closed at its cause.** A bundle is done when the places are fixed and a guard (a
   test, a lint rule, a check) fails as soon as the defect comes back.
 - **Questions are asked once.** Before a session puts a question to you, it reads the decisions you

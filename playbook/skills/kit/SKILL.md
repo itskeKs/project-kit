@@ -7,7 +7,8 @@ description: >
   /kit feat <text> draft the issue from a sentence, create it after the owner's OK and start its
   session; /kit triage starts the detached session that empties the project's inbox of recorded
   findings. Outside a project checkout the project is named, and /kit status covers all projects.
-  /kit init registers a project.
+  /kit init registers a project; /kit scripts lists procedures that sessions repeat by hand and
+  that could become scripts.
 ---
 
 # /kit — start and oversee this project's session chain
@@ -158,6 +159,34 @@ Run `python3 KIT/playbook/session-briefs/fill-brief.py init <repo-path>` (defaul
 you are in) and show the TODO keys it reports with their meaning (the project file explains each
 key in a comment). Do not invent values; ask the user for the ones you cannot derive, write them
 into the file, and run `fill-brief.py check`.
+Then offer `/kit scripts` once: a project that adopts the kit usually has procedures its sessions
+have been running by hand.
+
+## `/kit scripts`
+
+Finds procedures that sessions run by hand again and again, so that they can become scripts and
+stop costing tokens on every run. It changes nothing and creates an issue only after the owner's
+yes. Run it once for a project that adopts the kit and whenever the owner asks; between those,
+sessions record such procedures as `repeat` lines in the inbox and the triage run asks the owner
+about them.
+
+1. Start ONE fresh `builder` agent for this one task (never a resumed one) with this brief: "In
+   <repo-path>, read-only: read `AGENTS.md`, `CONTRIBUTING.md`, the Makefile, `scripts/` and the CI
+   file, the comments of the last 30 merged PRs (`gh pr list -R <repo> --state merged --limit 30
+   --json number`, then `gh pr view <n> -R <repo> --comments`; GitLab: `glab mr list -R <repo>
+   --merged`, `glab mr view <n> --comments`) and the open `repeat` lines of the inbox issue. List
+   every procedure of three or more commands that was run by hand at least twice and that no
+   script, make target or documented command covers. Per procedure: what it is for, the commands,
+   two places where you saw it, how often it runs (every PR, every release, rarely) and the step
+   of a session that would call a script. Change nothing and file nothing. No candidate is a valid
+   answer. You are at delegation level 1 and a leaf."
+2. Show the user the list, the most frequent first, and ask which ones should become scripts.
+3. For each one the user picks, draft the issue as in `/kit feat` (title `chore(scripts): …`;
+   Proposed change: one script or make target, a test of its refusals, its row in the command
+   table of `AGENTS.md` and the session step that calls it; User check: none) and create it after
+   the owner has seen the full draft. For each one the user refuses, post a comment headed "Owner
+   decision" on the inbox issue that names the procedure, so that a triage run dismisses later
+   `repeat` lines for it.
 
 ## Rules
 
@@ -165,6 +194,8 @@ into the file, and run `fill-brief.py check`.
   `MERGE_BY=maintainer` no session merges either, and none comments on the maintainer's issues
   or PRs.
 - An issue is created only after the owner has seen the full draft and said yes.
+- `/kit scripts` only searches and lists: it changes nothing in the repository, and an issue for a
+  script goes through the same full draft and yes.
 - One chain per project at a time unless the user asks for a parallel chain (`--handover "after PR"`).
 - Never start a maintainer session for a PR whose issue session is still running.
 - Never remove locks or worktrees from here; report them and let the user decide.

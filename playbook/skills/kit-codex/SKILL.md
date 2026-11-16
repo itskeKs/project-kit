@@ -78,6 +78,9 @@ are not Codex tools. The mapping:
   applicable Codex orchestration policy; read the local orchestration guide
   before delegating and do not enable `subagent-driven-development`. `/kit init`
   uses the shared script unchanged.
+- **Search for repeated procedures (`/kit scripts`):** where the original starts a Claude
+  `builder` for the read-only search, do the search directly or under the applicable Codex
+  orchestration policy; the list, the owner's choice and the issue drafts stay as written.
 
 ## Codex execution rules
 
