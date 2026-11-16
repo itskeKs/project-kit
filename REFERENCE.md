@@ -155,6 +155,8 @@ bootstrap.sh              copies kit/common and kit/<host>/repo into a repositor
                           creates CLAUDE.md -> AGENTS.md, fills host placeholders and the main branch
 install-global.sh         copies kit/global/agents/*.md to ~/.claude/agents/ and appends the policy
                           to ~/.claude/CLAUDE.md in a marker block; never overwrites, --dry-run previews
+AGENTS.md                 the contract for agents working in this checkout: rules, the two jobs
+                          (set up a project, change the kit), where to read; CLAUDE.md links to it
 onboarding.md             the recipe for a new project
 Makefile                  make test and make docs-check for the kit itself
 playbook/
