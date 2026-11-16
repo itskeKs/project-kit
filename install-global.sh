@@ -9,7 +9,8 @@ Usage: install-global.sh [--dry-run] [--help]
 
 Copies kit/global/agents/*.md to ~/.claude/agents/ and appends kit/global/orchestration-policy.md to
 ~/.claude/CLAUDE.md inside a marker block. Existing agent files are never overwritten, and the
-policy is added only once; both cases are reported and skipped. HOME is honored.
+policy is added only once: a marker block or a policy pasted by hand (recognized by its heading)
+is kept. Every skip is reported. HOME is honored.
 
   --dry-run  print what would be done and change nothing
   --help     show this text
@@ -50,6 +51,8 @@ home=${HOME:-}
 
 marker_begin='<!-- project-kit:begin -->'
 marker_end='<!-- project-kit:end -->'
+# The first words of kit/global/orchestration-policy.md; doctor.sh looks for the same heading.
+policy_heading='# Subagent orchestration policy'
 
 claude_dir="$home/.claude"
 agents_dir="$claude_dir/agents"
@@ -103,6 +106,12 @@ append_policy() {
         printf '%s %s: the policy block is already there\n' "$v_skip" "$policy_target"
         grep -Fq "$marker_end" "$policy_target" || \
             printf 'warning: %s has the begin marker but no end marker; check it by hand\n' "$policy_target" >&2
+        skipped=$((skipped + 1))
+        return 0
+    fi
+    # A policy pasted by hand has the heading but no markers; a second copy would only repeat it.
+    if [[ -f "$policy_target" ]] && grep -Fq "$policy_heading" "$policy_target"; then
+        printf '%s %s: a policy without the marker block is already there, kept as it is\n' "$v_skip" "$policy_target"
         skipped=$((skipped + 1))
         return 0
     fi

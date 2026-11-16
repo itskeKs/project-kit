@@ -87,7 +87,9 @@ Code needs, and installs them with `install-global.sh`; the rest is yours.
 `./install-global.sh` copies `kit/global/agents/*.md` to `~/.claude/agents/` and appends
 `kit/global/orchestration-policy.md` to `~/.claude/CLAUDE.md`, inside a block between `<!-- project-kit:begin -->`
 and `<!-- project-kit:end -->`. It creates missing directories and honors `HOME`. It never
-overwrites an existing agent file and never adds a second block; it reports and skips both.
+overwrites an existing agent file and never adds a second block; it reports and skips both. A
+policy that you pasted into `~/.claude/CLAUDE.md` by hand, without the markers, is recognized by its
+heading "Subagent orchestration policy" and kept the same way; `doctor.sh` reports it as present.
 `--dry-run` prints what it would do and changes nothing. To take a newer version of a file, remove
 the old one (or the block) by hand and run it again. It does not touch `settings.json`.
 

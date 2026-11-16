@@ -164,6 +164,20 @@ install_ok "$home"
 [[ "$(cat "$home/.claude/CLAUDE.md")" == "$(printf '%s\nold policy\n%s' "$MARK_BEGIN" "$MARK_END")" ]] || \
     fail 'an existing marker block was changed'
 output_grep -F 'already there' || fail 'an existing marker block is not reported'
+# A policy pasted by hand, without markers, is recognized by its heading: nothing is appended, with
+# or without --dry-run, and the agents are still installed.
+home=$(new_home own-policy)
+mkdir -p "$home/.claude"
+printf '# My rules\n\n# Subagent orchestration policy (my copy)\n\nBe brief.\n' > "$home/.claude/CLAUDE.md"
+policy_before=$(cat "$home/.claude/CLAUDE.md")
+install_ok "$home" --dry-run
+output_grep -F 'a policy without the marker block is already there' || fail 'dry run: a hand-kept policy is not reported'
+install_ok "$home"
+[[ "$(cat "$home/.claude/CLAUDE.md")" == "$policy_before" ]] || fail 'a hand-kept policy was changed'
+output_grep -F 'a policy without the marker block is already there' || fail 'a hand-kept policy is not reported'
+[[ -f "$home/.claude/agents/scout.md" ]] || fail 'hand-kept policy: the agents were not installed'
+head -n 1 "$KIT_DIR/kit/global/orchestration-policy.md" | grep -F '# Subagent orchestration policy' > /dev/null || \
+    fail 'kit/global/orchestration-policy.md no longer starts with the heading the installer looks for'
 printf 'test_install_global: existing CLAUDE.md OK\n'
 
 # --dry-run on an empty home creates nothing, not even the directories.

@@ -193,7 +193,7 @@ section 'Claude Code'
 if [[ -f "$claude_dir/CLAUDE.md" ]] && grep -Fq "$marker_begin" "$claude_dir/CLAUDE.md"; then
     report ok 'orchestration policy in ~/.claude/CLAUDE.md'
 elif [[ -f "$claude_dir/CLAUDE.md" ]] && grep -Fq "$policy_heading" "$claude_dir/CLAUDE.md"; then
-    # install-global.sh looks only for the marker and would append a second copy here.
+    # install-global.sh recognizes the same heading and keeps such a policy as it is.
     report ok 'orchestration policy in ~/.claude/CLAUDE.md (kept by hand, no marker block)'
 else
     host_gone 'orchestration policy in ~/.claude/CLAUDE.md' 'run `./install-global.sh`'
