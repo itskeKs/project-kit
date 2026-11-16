@@ -31,7 +31,9 @@ opens the PR (GitLab: MR). A fresh `verifier` agent reviews it, and the session 
 in rounds. After the third review the scope is frozen, and findings outside it are recorded: a
 line on the open bundle of their class, on the open issue that covers them, or on the project's
 inbox issue, which a triage session later turns into issues (a blocker-category finding or a core
-journey step a user cannot finish is filed at once). As soon as its PR is open, or after its merge, the session starts a successor session for
+journey step a user cannot finish is filed at once). A procedure of several commands that sessions
+keep running by hand is recorded the same way, with the class `repeat`; the triage session turns it
+into an issue for a script and asks the owner first. As soon as its PR is open, or after its merge, the session starts a successor session for
 the next unblocked issue. Before the merge of a PR with a user check, a blind acceptance agent
 without code access tries the user check. Per milestone it runs over all core journeys, and the
 owner accepts the result. A maintainer session exists only for PRs that no session works on
@@ -65,6 +67,11 @@ The briefs expect the following on your machine. The kit ships the first two, wh
 Code needs, and installs them with `install-global.sh`; the rest is yours.
 
 - With Claude Code: the orchestration policy in `~/.claude/CLAUDE.md`. Source: [kit/global/orchestration-policy.md](kit/global/orchestration-policy.md).
+  It sets who orchestrates, which model does which work, how deep delegation goes, and how long an
+  agent lives: one task per agent, resumed only for rework on that task while its context is small,
+  and scripts instead of agents for what repeats. `install-global.sh` appends the policy once and
+  never updates an existing block; after a change to the policy, replace the block between the
+  markers by hand.
 - With Claude Code: the agents `scout`, `builder`, `verifier` and `architect` in `~/.claude/agents/`. Source:
   [kit/global/agents/](kit/global/agents/). [roles.md](playbook/roles.md) describes what each one does.
   Codex has no counterpart to install; the supplement skill maps these roles to Codex threads and
@@ -133,7 +140,8 @@ If you use other tooling for these pieces, provide equivalents before you start 
    In a chat that runs in the project checkout, `/kit init` does the same as `fill-brief.py init`.
    `/kit next` then starts the next unblocked issue, and `/kit status` shows what needs the owner.
    `/kit issue <N>`, `/kit pr <N>`, `/kit bug <text>`, `/kit feat <text>` and `/kit triage` start other
-   sessions. Before the first session, set up the findings intake once per project: the labels, the
+   sessions. `/kit scripts` searches the project once, read-only, for procedures that were run by hand
+   at least twice and lists them; a script is built only from an issue the owner agreed to. Before the first session, set up the findings intake once per project: the labels, the
    inbox issue and `INBOX_ISSUE` in the project file ([onboarding.md](onboarding.md), step 8).
 
 Each session merges its own PR (with `MERGE_BY=maintainer`: hands it over) and starts its successor.

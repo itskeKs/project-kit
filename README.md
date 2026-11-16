@@ -17,6 +17,10 @@ with Codex, on GitHub or GitLab.
 - **A backlog that does not flood.** What a review or an acceptance run finds outside the issue's
   scope is written down once, as one line, instead of becoming an issue each time. A triage run
   turns the collected lines into work. See [Findings, bundles and the inbox](#findings-bundles-and-the-inbox).
+- **Agents that do not waste tokens.** A subagent gets one task and is not carried from task to
+  task: every step of a resumed agent sends its whole context again. What sessions do by hand
+  again and again is recorded, and after your yes it becomes a script that every later session
+  runs instead.
 - **Work by importance.** Every issue carries a tier: launch blocker, before launch, after launch.
   Sessions take the most urgent free issue, not the lowest number. An issue without a tier is never
   picked.
@@ -28,7 +32,8 @@ with Codex, on GitHub or GitLab.
 - **`/kit` in Claude Code, `$kit` in Codex.** `/kit status` shows what is running and what waits for
   you, how many issues were opened and closed in the last seven days, how full the inbox is and how
   many issues are open per tier. `/kit next` starts the next issue by tier. `/kit bug <text>` turns
-  a sentence into an issue and starts its session. `/kit triage` empties the inbox. The sessions
+  a sentence into an issue and starts its session. `/kit triage` empties the inbox. `/kit scripts`
+  lists what sessions keep doing by hand and could be a script. The sessions
   themselves run as Claude Code sessions or as Codex threads.
 
 ## Findings, bundles and the inbox
@@ -125,6 +130,8 @@ Everything else an agent can do, an agent does.
    ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
    ```
    In a chat inside your repository: `/kit init`, then `/kit next` (Codex: `$kit init`, `$kit next`).
+   For a project that has been running for a while, `/kit scripts` once shows which repeated
+   procedures are worth a script.
 
 [onboarding.md](onboarding.md) walks through this in detail, including CI and branch protection.
 

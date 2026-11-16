@@ -213,6 +213,14 @@ merges (`MERGE_BY=maintainer`): its sessions post nothing on the tracker.
 `/kit triage` starts the triage run ([playbook/session-briefs/triage-session.md](playbook/session-briefs/triage-session.md))
 when the inbox holds 15 or more open lines, five PRs were merged since the last run, or you want it.
 
+The same inbox collects what sessions do by hand again and again. A session that runs a procedure
+of three or more commands which an earlier session ran too records it as a line with the class
+`repeat`. The triage run turns such a line into an issue for a script and asks you "Build this
+script?" as a blocking question on that issue; `/kit status` shows it under "Needs you". Answer
+with a comment headed "Owner decision"; a no is remembered, and later lines for the same procedure
+are dismissed. For a project that already has a history, `/kit scripts` does this search once
+over its documents and the comments of its last merged PRs and shows you the candidates.
+
 ## 9 Start the session chain
 
 Every issue gets its own session with empty context, which takes it from claiming it to the merge
@@ -229,7 +237,8 @@ link it once with `ln -s <KIT_PATH>/playbook/skills/kit ~/.claude/skills/kit`, r
 with `/kit init` and complete the TODO values it names, then `/kit next` starts the next unblocked
 issue by tier as a detached session, `/kit pr <N>` a maintainer session, `/kit triage` a triage
 session for the inbox, `/kit bug <text>` or
-`/kit feat <text>` drafts an issue from a sentence and starts it after your OK, and `/kit status`
+`/kit feat <text>` drafts an issue from a sentence and starts it after your OK, `/kit scripts` lists
+procedures that sessions repeat by hand and that could become scripts, and `/kit status`
 shows the project's PRs, issues, worktrees and locks and what needs you. Outside a checkout the commands take
 the project name, and `/kit status` covers all registered projects.
 
