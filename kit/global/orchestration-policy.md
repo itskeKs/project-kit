@@ -21,6 +21,13 @@
 - Tiered verification: mechanical checks (build/tests/repro) go to a cheap worker; logic-critical or risky changes get an adversarial `verifier` pass; the orchestrator always reviews the reports and the final diff itself before integrating.
 - Read frugally: for lists/extraction, `rg` the defining lines first (decorators, `def`/`class`, headings, keys) and read only the needed ranges; one Read beats many small reads only when you need most of one file.
 
+## Agent lifetime — one task per agent
+- A subagent has exactly one task (one issue, one review, one acceptance run). A new task gets a fresh agent, even when the work is of the same kind as the last one. Never keep a standing helper that is resumed task after task (environment setup, CI watching, log triage): every step of a resumed agent sends its whole context again, so a helper that has served ten tasks pays for all ten on every step of the eleventh.
+- Resume an agent only for rework on its own task, and only while the token figure its last run reported is small (rule of thumb: under 200k). Above that, start a fresh agent and hand it what the task's record already holds (the issue, the PR, the review comment, the worktree), plus at most a short handoff the old agent writes.
+- Read the token figure every agent run reports. A figure that grows from run to run is the signal to stop resuming that agent.
+- What repeats is a script, not an agent: starting and stopping an environment, creating test data, posting recurring comments. If the procedure is not written down yet, the first agent that does it writes it down (a script in the repository, or the commands in the project's `AGENTS.md`), and every later run uses that instead of an agent's memory.
+- Agents do not sit and wait. Waiting for CI, a build or another process is one blocking shell command, or a background command of the orchestrator, never a loop of tool calls that each send the context again.
+
 ## Recursive orchestration
 - Subagents MAY orchestrate their own subagents, choosing each child's model by the same rules. Delegation flows DOWNWARD in tiers: an orchestrator never runs children on its own model, and never on the chat model.
 - Depth limit (default — the user can override per request): max 2 levels below the chat — L0 chat model → L1 sub-orchestrators (opus) → L2 leaf workers (sonnet/haiku). L2 agents must not spawn subagents.

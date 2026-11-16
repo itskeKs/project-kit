@@ -11,7 +11,7 @@ needed: the supplement skill maps these roles to Codex threads and subagents.
 | `agents/builder.md` | `~/.claude/agents/` | sonnet at xhigh, the default worker for well-specified changes; leaf |
 | `agents/verifier.md` | `~/.claude/agents/` | opus at high, adversarial review; verdict CONFIRMED or REFUTED; leaf |
 | `agents/architect.md` | `~/.claude/agents/` | opus at xhigh, design and hard debugging; may delegate to `builder` and `scout` |
-| `orchestration-policy.md` | appended to `~/.claude/CLAUDE.md` | the orchestration policy: roles, model tiers, depth limit |
+| `orchestration-policy.md` | appended to `~/.claude/CLAUDE.md` | the orchestration policy: roles, model tiers, agent lifetime, depth limit |
 
 The policy assumes the chat model is the most expensive model you use and delegates downward
 from it. If you run on another tier, adjust `model` in the agent files and the tier map in the

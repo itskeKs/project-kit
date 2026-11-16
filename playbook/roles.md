@@ -25,6 +25,8 @@ The orchestrator delegates downward in model tier and upward in effort: a cheape
 | `verifier` | opus, high | adversarial review of a diff; verdict CONFIRMED or REFUTED with a concrete failure scenario, changes nothing itself |
 | `architect` | opus, xhigh | design, difficult debugging, security review; may use `scout` and `builder` |
 
+A subagent has one task, as a session has one issue: a new task gets a fresh agent, and an agent is resumed only for rework on its own task while its context is still small. No helper agent is carried from task to task; what repeats (starting an environment, creating test data) is a script or a list of commands in the project, because every step of a resumed agent sends its whole context again. The policy's section "Agent lifetime" has the rules.
+
 Delegation goes at most two levels deep below the chat: orchestrator, then a sub-orchestrator (`architect`), then leaf workers that delegate nothing further. The depth is not counted automatically; every orchestrator writes the level and the remaining budget into the child's prompt. These definitions are not in the project but in the user's personal configuration (`~/.claude/CLAUDE.md`, `~/.claude/agents/`). The kit ships them in [kit/global/](../kit/global/), and `install-global.sh` installs them.
 
 ## The acceptance agent

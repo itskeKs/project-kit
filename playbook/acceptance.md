@@ -192,7 +192,11 @@ The agent needs a running instance with an empty or known state, separate from p
 possible, without blocking the shared test database. Which environment that is in the project (local
 dev stack, portable package, staging) is in the project's `AGENTS.md` under "Verification", together
 with whether each run gets an environment of its own. The session that starts the run starts and
-stops it, never the acceptance agent. If the environment is shared (shared staging, fixed ports), the
+stops it, never the acceptance agent. Starting and stopping is a script or a short list of commands
+named there, so that the session runs it itself or gives it to a fresh agent for this one run. No
+agent is carried over from one PR's run to the next to do it: an agent that has set up ten
+environments sends all ten again on every step of the eleventh
+([orchestration policy](../kit/global/orchestration-policy.md), "Agent lifetime"). If the environment is shared (shared staging, fixed ports), the
 run holds `/tmp/<project>-acceptance.lock`: a `mkdir` before the environment starts, PR and time in
 `info`, waiting and leftovers from crashes as with the merge lock ([workflow.md](workflow.md), "One
 session, one task"), released right after the environment is torn down.
