@@ -1,17 +1,21 @@
-.PHONY: help test docs-check
+.PHONY: help doctor test docs-check
 
 help: ## List the documented targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+doctor: ## Check that this machine has what the kit needs (read-only)
+	./doctor.sh
+
 test: ## Test both bootstrap hosts, the global installer and the scripts; check shell scripts when shellcheck is installed
 	bash tests/test_bootstrap.sh
 	bash tests/test_install_global.sh
+	bash tests/test_doctor.sh
 	python3 tests/test_fill_brief.py
 	python3 tests/test_kit_status.py
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck bootstrap.sh install-global.sh tests/test_bootstrap.sh tests/test_install_global.sh kit/*/protect.sh kit/common/scripts/checks.sh; \
+		shellcheck bootstrap.sh install-global.sh doctor.sh tests/test_bootstrap.sh tests/test_install_global.sh tests/test_doctor.sh kit/*/protect.sh kit/common/scripts/checks.sh; \
 	elif docker info >/dev/null 2>&1; then \
-		docker run --rm -v "$$PWD:/mnt:ro" koalaman/shellcheck:stable bootstrap.sh install-global.sh tests/test_bootstrap.sh tests/test_install_global.sh kit/github/protect.sh kit/gitlab/protect.sh kit/common/scripts/checks.sh; \
+		docker run --rm -v "$$PWD:/mnt:ro" koalaman/shellcheck:stable bootstrap.sh install-global.sh doctor.sh tests/test_bootstrap.sh tests/test_install_global.sh tests/test_doctor.sh kit/github/protect.sh kit/gitlab/protect.sh kit/common/scripts/checks.sh; \
 	else \
 		printf '%s\n' 'shellcheck not installed and docker not running — skipped'; \
 	fi

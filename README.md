@@ -102,11 +102,17 @@ Everything else an agent can do, an agent does.
 - With Codex: the kit's hook feeds your project rules into every Codex session. Approve it once per
   clone with `/hooks`.
 
+You do not have to check this list by hand: after cloning, `make doctor` in the kit directory looks
+for every item, prints the fix for each gap and changes nothing.
+
 ## Getting started
 
-1. Clone the kit.
+1. Clone the kit and check your machine.
    ```bash
    git clone git@github.com:itskeKs/project-kit.git ~/Developer/project-kit
+   ```
+   ```bash
+   cd ~/Developer/project-kit && make doctor
    ```
 2. Copy the files into your repository (nothing existing is overwritten):
    ```bash
@@ -129,17 +135,26 @@ Everything else an agent can do, an agent does.
    ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit
    ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
    ```
+   Inside the kit directory the skill is already linked (`.claude/skills/kit`,
+   `.agents/skills/kit`); the links above make it available in the chats of your projects.
    In a chat inside your repository: `/kit init`, then `/kit next` (Codex: `$kit init`, `$kit next`).
    For a project that has been running for a while, `/kit scripts` once shows which repeated
    procedures are worth a script.
 
 [onboarding.md](onboarding.md) walks through this in detail, including CI and branch protection.
 
+You can also let an agent do the setup. Open Claude Code or Codex in the kit directory: its
+[AGENTS.md](AGENTS.md) is loaded with the first message and gives the agent the rules, the order of
+the steps and where to read. Then say which repository to set up, for example "set up
+/path/to/your/repo with the kit, host github". The agent previews every installer run, never
+overwrites a file and leaves the logins to you.
+
 ## Read more
 
 | | |
 | --- | --- |
 | [onboarding.md](onboarding.md) | Setting up a project, step by step |
+| [AGENTS.md](AGENTS.md) | The rules for an agent working in the kit directory itself |
 | [playbook/workflow.md](playbook/workflow.md) | The path of a change, from roadmap to merge |
 | [playbook/roles.md](playbook/roles.md) | Who does what: owner, sessions, reviewer, acceptance agent, workers |
 | [playbook/acceptance.md](playbook/acceptance.md) | The user check and the acceptance run |

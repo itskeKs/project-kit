@@ -12,6 +12,7 @@ directory installs the policy and the four agents and skips what already exists 
 previews it); the skills and `codex-task` you provide yourself. The host CLI (`glab` or `gh`) is
 logged in by the owner: `glab auth status --hostname <host>` or `gh auth status`. Agents never
 enter tokens; if the login is missing, the session reports it and keeps working locally.
+`make doctor` in the kit directory checks all of this read-only and prints the fix for each gap.
 
 The kit itself is never pushed into a project; only the copied files land in the target
 repository. For a self-hosted GitLab instance the host is a parameter everywhere there:

@@ -38,6 +38,7 @@ host (`github` or `gitlab`), the host name of a self-hosted GitLab, and the main
 the checked-out one.
 
 ```bash
+make doctor                                        # read-only: what the machine has, what is missing
 ./install-global.sh --dry-run                      # global layer for Claude Code: policy and agents
 ./install-global.sh
 ./bootstrap.sh /path/to/repo --host github --dry-run
@@ -45,8 +46,9 @@ the checked-out one.
 ```
 
 What the machine must already have (skills `/rpa-init` and `/rpa-gen-rules`, the host CLI, the
-optional `codex-task` wrapper) is listed under [Requirements](REFERENCE.md#requirements). Check it
-before step 1 and name what is missing instead of improvising a replacement.
+optional `codex-task` wrapper) is listed under [Requirements](REFERENCE.md#requirements).
+`make doctor` checks it; run it before step 1, pass its `MISSING` lines on to the owner with the fix
+it prints, and never improvise a replacement for a missing piece.
 
 From the moment `bootstrap.sh` has run, the target repository's own `AGENTS.md` is the contract for
 everything done inside that repository. This file keeps governing only what you do to the kit.
@@ -92,6 +94,7 @@ everything done inside that repository. This file keeps governing only what you 
 
 ```bash
 make help         # list the targets
+make doctor       # read-only check of the machine against the requirements
 make test         # bootstrap for both hosts, the global installer, the scripts, ShellCheck if available
 make docs-check   # relative links in the kit
 ```
@@ -101,3 +104,8 @@ make docs-check   # relative links in the kit
 Claude Code reads `CLAUDE.md`, which is a symlink to this file, the same arrangement `bootstrap.sh`
 creates in every project. Codex, Cursor and other tools that know `AGENTS.md` read this file
 directly. Keep the substance here; never turn `CLAUDE.md` into a copy.
+
+The `/kit` skill is linked into this checkout: `.claude/skills/kit` points to `playbook/skills/kit`
+and `.agents/skills/kit` to `playbook/skills/kit-codex`. Both are relative symlinks; edit the files
+under `playbook/skills/`, never replace a link with a copy. In this checkout no project is implied,
+so every `/kit` command except `/kit status` needs the project named.

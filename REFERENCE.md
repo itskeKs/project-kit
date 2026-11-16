@@ -103,6 +103,8 @@ If you use other tooling for these pieces, provide equivalents before you start 
    git clone git@github.com:itskeKs/project-kit.git ~/Developer/project-kit
    cd ~/Developer/project-kit && ./install-global.sh
    ```
+   `make doctor` then checks the machine against [Requirements](#requirements): it prints one line
+   per item with the fix for each gap and changes nothing.
 2. Bootstrap the target repository, a new one or an existing one. Run this from the kit
    directory. Existing files are never overwritten, and skipped files are reported. Add
    `--dry-run` to preview.
@@ -157,8 +159,12 @@ install-global.sh         copies kit/global/agents/*.md to ~/.claude/agents/ and
                           to ~/.claude/CLAUDE.md in a marker block; never overwrites, --dry-run previews
 AGENTS.md                 the contract for agents working in this checkout: rules, the two jobs
                           (set up a project, change the kit), where to read; CLAUDE.md links to it
+doctor.sh                 read-only check of the machine against the requirements: tools, host CLI
+                          login, the global layer, the skills; prints the fix for each gap
+.claude/skills/kit        symlink to playbook/skills/kit, so /kit works in a chat in this checkout
+.agents/skills/kit        symlink to playbook/skills/kit-codex, the same for $kit in Codex
 onboarding.md             the recipe for a new project
-Makefile                  make test and make docs-check for the kit itself
+Makefile                  make test, make docs-check and make doctor for the kit itself
 playbook/
   workflow.md             the path of a change from roadmap to merge
   roles.md                owner, orchestrator, Codex worker, subagents, acceptance agent
@@ -183,8 +189,8 @@ kit/github/protect.sh     protected main branch with required checks, via gh api
 kit/gitlab/repo/          .gitlab-ci.yml with a release job, issue and MR templates
 kit/gitlab/protect.sh     protected main branch, "Pipelines must succeed", approvals, via glab api
 kit/gitlab/cli.md         every gh command of the process and its glab counterpart
-tests/                    test_bootstrap.sh, test_install_global.sh, test_fill_brief.py,
-                          test_kit_status.py
+tests/                    test_bootstrap.sh, test_install_global.sh, test_doctor.sh,
+                          test_fill_brief.py, test_kit_status.py
 ```
 
 ## Placeholders
@@ -241,6 +247,10 @@ ln -s ~/Developer/project-kit/playbook/skills/kit ~/.claude/skills/kit
 ln -s ~/Developer/project-kit/playbook/skills/kit-codex ~/.agents/skills/kit
 ```
 
+The kit checkout carries the same two links relative to itself (`.claude/skills/kit`,
+`.agents/skills/kit`), so both commands work in a chat opened in the kit directory right after
+cloning. The links in your home directory are what makes them available in a project's chats.
+
 The hook in `kit/common/.codex/` attaches the generated rules to Codex sessions: the always-on
 rules at session start, the scoped rules before `apply_patch`, `Edit` or `Write`. It reads the
 `.cursor/rules/` tree; approve it once per clone with `/hooks`.
@@ -254,12 +264,16 @@ setup, where a Claude Code session hands implementation to Codex through `codex-
 make test
 ```
 
-runs four suites. `tests/test_bootstrap.sh` bootstraps both hosts into a temp directory. It checks
+runs five suites. `tests/test_bootstrap.sh` bootstraps both hosts into a temp directory. It checks
 files, the symlink, placeholders, default-branch detection, no overwriting and idempotence. On the
 result it runs the link checker and the rule test. `tests/test_install_global.sh` runs
 `install-global.sh` against temporary home directories. It checks a fresh install, that a second run
 changes nothing, that an existing agent file or `CLAUDE.md` content is kept, that `--dry-run`
 creates nothing and bad arguments. It never touches your real `~/.claude`.
+`tests/test_doctor.sh` runs `doctor.sh` against temporary home directories with fake `gh` and
+`glab`. It checks a complete machine, a missing login, the `GITLAB_HOST` hand-over, the fix lines
+for a missing global layer, that a run changes nothing and that no output of the host CLI is
+printed.
 `tests/test_fill_brief.py` covers `fill-brief.py`, including the triage brief and the intake keys.
 `tests/test_kit_status.py` covers `kit-status.py` offline, with fake `gh` and `glab`, including the
 intake numbers. ShellCheck
